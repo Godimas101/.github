@@ -88,9 +88,17 @@ jobs:
                   capture_output=True, text=True, encoding="utf-8", env=env,
               )
               if r.returncode != 0:
-                  print(f"::warning::gh gql failed: {r.stderr[:200]}", file=sys.stderr)
+                  print(f"::warning::gh gql failed (exit={r.returncode}): stderr={r.stderr[:300]} stdout={r.stdout[:300]}", file=sys.stderr)
                   return None
-              return json.loads(r.stdout)
+              try:
+                  parsed = json.loads(r.stdout)
+              except json.JSONDecodeError as e:
+                  print(f"::warning::gh gql JSON parse failed: {e} — stdout={r.stdout[:300]}", file=sys.stderr)
+                  return None
+              if "errors" in parsed:
+                  print(f"::warning::gh gql GraphQL errors: {parsed['errors']}", file=sys.stderr)
+                  return None
+              return parsed
 
           def fetch_items(owner_type, owner, num):
               root = "organization" if owner_type == "org" else "user"
