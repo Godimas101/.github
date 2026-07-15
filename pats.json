@@ -1,0 +1,57 @@
+{
+  "$schema": "PAT tracking manifest for automated expiration reminders. See .github/workflows/check-pat-expiration.yml.",
+  "checked_by_workflow": ".github/workflows/check-pat-expiration.yml",
+  "warn_days_ahead": 60,
+  "pats": [
+    {
+      "name": "MOD_PROJECT_TOKEN",
+      "type": "fine-grained",
+      "owner": "gitpush-mod (org)",
+      "installed_at": [
+        "gitpush-mod org secret (visibility=all)"
+      ],
+      "created": "2026-07-15",
+      "expires": "2027-07-15",
+      "scope": "Organization Projects: Read + Write on gitpush-mod",
+      "used_by": [
+        "gitpush-mod/.github/.github/workflows/auto-archive-mod-boards.yml",
+        "gitpush-mod/.github/.github/workflows/append-changelog.yml (reusable)",
+        "each mod repo's .github/workflows/on-issue-close.yml (inherits via secrets: inherit)"
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Regenerate on the fine-grained PATs page. Keep same permissions. Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set MOD_PROJECT_TOKEN --org gitpush-mod --visibility all"
+    },
+    {
+      "name": "PERSONAL_PROJECT_TOKEN",
+      "type": "classic",
+      "owner": "Godimas101 (user)",
+      "installed_at": [
+        "Godimas101/.github repo secret"
+      ],
+      "created": "2026-07-15",
+      "expires": "2027-07-14",
+      "scope": "project + repo (classic PAT scopes)",
+      "used_by": [
+        "Godimas101/.github/.github/workflows/auto-archive-personal-projects.yml"
+      ],
+      "renew_url": "https://github.com/settings/tokens",
+      "renew_steps": "Classic PAT — regenerate with same scopes (project + repo). Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set PERSONAL_PROJECT_TOKEN -R Godimas101/.github"
+    },
+    {
+      "name": "TCS_PROJECT_TOKEN",
+      "type": "fine-grained (assumed)",
+      "owner": "The-Canadian-Space (org)",
+      "installed_at": [
+        "The-Canadian-Space org secret (or repo-level — verify)"
+      ],
+      "created": "UNKNOWN",
+      "expires": "UNKNOWN",
+      "scope": "Organization Projects: Read + Write on The-Canadian-Space (assumed)",
+      "used_by": [
+        "TCS ticket-first automation (verify actual workflow files)"
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Verify expiration date and update this entry. If unknown, next login: run `gh api user | jq` on that PAT to see if it still auths."
+    }
+  ]
+}

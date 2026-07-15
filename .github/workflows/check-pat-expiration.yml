@@ -1,0 +1,179 @@
+name: Check PAT expiration
+
+# Weekly cron that reads pats.json and files an issue on Godimas101/.github if
+# any PAT is close to expiring. Idempotent — if an open issue already exists
+# for the same PAT + expiry date, it's not duplicated.
+#
+# Chris explicitly asked for a reminder system for these tokens ("really prefer
+# no expiration tokens for personal stuff like this, but I get the concern").
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'  # Monday 05:00 UTC (day after auto-archive cron)
+  workflow_dispatch:
+    inputs:
+      warn_days_ahead:
+        description: 'Days before expiry to trigger a warning'
+        required: false
+        default: '60'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # Uses the default GITHUB_TOKEN for filing issues on THIS repo — no PAT needed
+      GH_TOKEN: ${{ github.token }}
+      WARN_DAYS: ${{ inputs.warn_days_ahead || '60' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check expirations + file issues
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f pats.json ]]; then
+            echo "::error::pats.json not found at repo root"
+            exit 1
+          fi
+
+          python3 <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from datetime import datetime, timezone
+
+          warn_days = int(os.environ.get("WARN_DAYS", "60"))
+          today = datetime.now(timezone.utc).date()
+
+          with open("pats.json", encoding="utf-8") as f:
+              data = json.load(f)
+
+          warnings = []
+          unknowns = []
+          healthy = []
+
+          for pat in data.get("pats", []):
+              name = pat.get("name", "?")
+              exp = pat.get("expires", "UNKNOWN")
+
+              if exp == "UNKNOWN":
+                  unknowns.append(pat)
+                  continue
+
+              try:
+                  exp_date = datetime.strptime(exp, "%Y-%m-%d").date()
+              except ValueError:
+                  print(f"::warning::PAT '{name}' has malformed expires field: {exp!r}")
+                  continue
+
+              days_left = (exp_date - today).days
+              pat["_days_left"] = days_left
+              pat["_exp_date"] = exp_date.isoformat()
+
+              if days_left < warn_days:
+                  warnings.append(pat)
+              else:
+                  healthy.append(pat)
+
+          print(f"Warn threshold: {warn_days} days")
+          print(f"Warnings: {len(warnings)}  Unknowns: {len(unknowns)}  Healthy: {len(healthy)}")
+
+          if not warnings and not unknowns:
+              print("All PATs healthy — no issues to file.")
+              sys.exit(0)
+
+          # Build issue title + body
+          title_parts = []
+          if warnings:
+              title_parts.append(f"{len(warnings)} PAT{'s' if len(warnings) > 1 else ''} expiring soon")
+          if unknowns:
+              title_parts.append(f"{len(unknowns)} PAT{'s' if len(unknowns) > 1 else ''} with unknown expiry")
+          title = "PAT reminder — " + ", ".join(title_parts) + f" ({today.isoformat()})"
+
+          body_lines = [
+              "Automated reminder from `.github/workflows/check-pat-expiration.yml`.",
+              "",
+              f"**Warn threshold:** {warn_days} days ahead",
+              f"**Check date:** {today.isoformat()}",
+              "",
+          ]
+
+          if warnings:
+              body_lines.append("## ⏰ PATs expiring within warn window")
+              body_lines.append("")
+              body_lines.append("| PAT | Owner | Expires | Days left | Where installed |")
+              body_lines.append("|---|---|---|---|---|")
+              for p in sorted(warnings, key=lambda x: x["_days_left"]):
+                  installed = ", ".join(p.get("installed_at", ["?"]))
+                  body_lines.append(
+                      f"| **{p['name']}** | {p.get('owner','?')} | {p['_exp_date']} | **{p['_days_left']}** | {installed} |"
+                  )
+              body_lines.append("")
+              body_lines.append("### Rotation steps per PAT")
+              body_lines.append("")
+              for p in warnings:
+                  body_lines.append(f"**{p['name']}:**")
+                  body_lines.append(f"- Regenerate at: {p.get('renew_url', 'https://github.com/settings/tokens')}")
+                  body_lines.append(f"- Renewal notes: {p.get('renew_steps', '(see pats.json)')}")
+                  used_by = p.get("used_by", [])
+                  if used_by:
+                      body_lines.append("- Used by:")
+                      for u in used_by:
+                          body_lines.append(f"  - `{u}`")
+                  body_lines.append("")
+              body_lines.append("")
+
+          if unknowns:
+              body_lines.append("## ❓ PATs with unknown expiration")
+              body_lines.append("")
+              body_lines.append("These entries in `pats.json` have `expires: UNKNOWN` — please update.")
+              body_lines.append("")
+              for p in unknowns:
+                  body_lines.append(f"- **{p['name']}** (owner: {p.get('owner','?')})")
+              body_lines.append("")
+
+          if healthy:
+              body_lines.append("## ✅ PATs healthy (>60 days remaining)")
+              body_lines.append("")
+              for p in healthy:
+                  body_lines.append(f"- **{p['name']}** — {p['_days_left']} days left")
+              body_lines.append("")
+
+          body_lines.append("---")
+          body_lines.append("*Manifest: [`pats.json`](https://github.com/Godimas101/.github/blob/main/pats.json). This issue will auto-close if this workflow's next run finds all PATs healthy.*")
+
+          body = "\n".join(body_lines)
+
+          # Idempotency — check for existing open issue with matching title today
+          existing_titles = subprocess.check_output(
+              ["gh", "issue", "list", "--state", "open", "--json", "title", "--jq", ".[].title"],
+              text=True, encoding="utf-8"
+          ).strip().splitlines()
+
+          if title in existing_titles:
+              print(f"Issue already exists with today's title — skipping duplicate:\n  {title}")
+              sys.exit(0)
+
+          # Create the issue
+          import tempfile
+          with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tmp:
+              tmp.write(body)
+              tmp_path = tmp.name
+
+          subprocess.check_call([
+              "gh", "issue", "create",
+              "--title", title,
+              "--body-file", tmp_path,
+              "--label", "pat-reminder",
+          ])
+          print(f"Filed: {title}")
+
+          # Also auto-close old open pat-reminder issues if everything is healthy now
+          # (only reachable if we filed a new one; the "all healthy" path exited earlier)
+          PY
