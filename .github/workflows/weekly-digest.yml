@@ -106,7 +106,7 @@ jobs:
                   '{ ' + root + '(login: "' + owner + '") { projectV2(number: ' + str(num) + ') { '
                   'title url items(first: 100) { nodes { '
                   'id updatedAt '
-                  'content { ... on DraftIssue { title url } ... on Issue { title url } ... on PullRequest { title url } } '
+                  'content { ... on DraftIssue { title } ... on Issue { title url } ... on PullRequest { title url } } '
                   'fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } '
                   '} } } } }'
               )
@@ -134,6 +134,7 @@ jobs:
                   status = ((it.get("fieldValueByName") or {}).get("name")) or ""
                   content = it.get("content") or {}
                   item_title = content.get("title") or "(no title)"
+                  # DraftIssue has no public url — fall back to the board url
                   item_url = content.get("url") or url
                   updated_iso = it.get("updatedAt") or ""
                   try:
