@@ -1,0 +1,255 @@
+name: Weekly status digest
+
+# Every Monday 06:00 UTC (hour after the auto-archive workflows), queries all
+# of Chris's boards (Personal, mods, TCS Timeline, games), aggregates
+# In Progress + In QA + recently-Done items into ONE issue on this repo.
+# Closes the previous week's digest so "open issues" always shows the current
+# snapshot.
+#
+# Requires PERSONAL_PROJECT_TOKEN (classic PAT with `project` + `repo` scopes)
+# — classic PAT respects Chris's user permissions across gitpush-mod and
+# The-Canadian-Space orgs, so ONE token is enough for all 14 boards.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      warn_stale_days:
+        description: 'Warn if In QA items are older than this many days'
+        required: false
+        default: '3'
+      window_days:
+        description: 'Include Done items closed in last N days'
+        required: false
+        default: '7'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+      DEFAULT_TOKEN: ${{ github.token }}
+      WARN_STALE_DAYS: ${{ inputs.warn_stale_days || '3' }}
+      WINDOW_DAYS: ${{ inputs.window_days || '7' }}
+    steps:
+      - name: Build + file digest
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set on Godimas101/.github."
+            exit 1
+          fi
+
+          python3 <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          from datetime import datetime, timedelta, timezone
+
+          # Board catalogue
+          BOARDS = [
+              # (owner_type, owner, number, label)
+              ("user", "Godimas101",         2, "Personal Projects"),
+              ("org",  "gitpush-mod",        3, "InfoLCD Apex Update"),
+              ("org",  "gitpush-mod",        4, "InfoLCD Apex Advanced"),
+              ("org",  "gitpush-mod",        5, "Not Just For Looks"),
+              ("org",  "gitpush-mod",        6, "NJFL — Additions"),
+              ("org",  "gitpush-mod",        7, "NJFL — Without Weapons"),
+              ("org",  "gitpush-mod",        8, "Tiered Build and Repair"),
+              ("org",  "gitpush-mod",        9, "SG Core Mods"),
+              ("org",  "gitpush-mod",       10, "Mod Adjuster Mods"),
+              ("org",  "gitpush-mod",       11, "ZuluBetterHeroes Reforged"),
+              ("org",  "gitpush-mod",       12, "R13verGrrl"),
+              ("org",  "The-Canadian-Space", 1, "TCS Timeline"),
+              ("org",  "The-Canadian-Space", 2, "Idle Launch"),
+              ("org",  "The-Canadian-Space", 3, "AutoDoom"),
+          ]
+
+          WARN_STALE = int(os.environ.get("WARN_STALE_DAYS", "3"))
+          WINDOW_DAYS = int(os.environ.get("WINDOW_DAYS", "7"))
+          now = datetime.now(timezone.utc)
+          today = now.date()
+          window_start = now - timedelta(days=WINDOW_DAYS)
+          stale_cutoff = now - timedelta(days=WARN_STALE)
+
+          def gql(query):
+              env = os.environ.copy()
+              env["GH_TOKEN"] = os.environ["GH_TOKEN"]
+              r = subprocess.run(
+                  ["gh", "api", "graphql", "-f", f"query={query}"],
+                  capture_output=True, text=True, encoding="utf-8", env=env,
+              )
+              if r.returncode != 0:
+                  print(f"::warning::gh gql failed: {r.stderr[:200]}", file=sys.stderr)
+                  return None
+              return json.loads(r.stdout)
+
+          def fetch_items(owner_type, owner, num):
+              root = "organization" if owner_type == "org" else "user"
+              q = (
+                  '{ ' + root + '(login: "' + owner + '") { projectV2(number: ' + str(num) + ') { '
+                  'title url items(first: 100) { nodes { '
+                  'id updatedAt '
+                  'content { ... on DraftIssue { title url } ... on Issue { title url } ... on PullRequest { title url } } '
+                  'fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } '
+                  '} } } } }'
+              )
+              d = gql(q)
+              if not d or "data" not in d or not d["data"]:
+                  return None, None, []
+              node = d["data"].get(root) or {}
+              proj = node.get("projectV2") or {}
+              if not proj:
+                  return None, None, []
+              items = (proj.get("items") or {}).get("nodes", []) or []
+              return proj.get("title"), proj.get("url"), items
+
+          # Collect
+          in_progress = []  # (board_label, board_url, item_title, item_url, updatedAt)
+          in_qa = []
+          done_recent = []
+
+          for owner_type, owner, num, label in BOARDS:
+              title, url, items = fetch_items(owner_type, owner, num)
+              if title is None:
+                  print(f"  ! {label}: could not fetch")
+                  continue
+              for it in items:
+                  status = ((it.get("fieldValueByName") or {}).get("name")) or ""
+                  content = it.get("content") or {}
+                  item_title = content.get("title") or "(no title)"
+                  item_url = content.get("url") or url
+                  updated_iso = it.get("updatedAt") or ""
+                  try:
+                      updated = datetime.fromisoformat(updated_iso.replace("Z", "+00:00"))
+                  except ValueError:
+                      updated = now
+
+                  entry = (label, url, item_title, item_url, updated)
+                  if status == "In Progress":
+                      in_progress.append(entry)
+                  elif status == "In QA":
+                      in_qa.append(entry)
+                  elif status == "Done" and updated >= window_start:
+                      done_recent.append(entry)
+
+          # Sort: in-progress + done_recent by updated desc, in_qa by oldest first
+          in_progress.sort(key=lambda e: e[4], reverse=True)
+          done_recent.sort(key=lambda e: e[4], reverse=True)
+          in_qa.sort(key=lambda e: e[4])
+
+          # Build body
+          lines = [
+              f"Automated weekly digest for the week of **{today.isoformat()}**.",
+              "",
+              f"Windows: In Progress + In QA = current state. Recently Done = closed within last {WINDOW_DAYS} days. Stale-QA threshold = {WARN_STALE} days.",
+              "",
+          ]
+
+          if in_qa:
+              stale_count = sum(1 for e in in_qa if e[4] < stale_cutoff)
+              header = f"## 🔍 In QA — {len(in_qa)} item(s) waiting on Chris"
+              if stale_count:
+                  header += f" ⚠️ **{stale_count} sitting for > {WARN_STALE} days**"
+              lines.append(header)
+              lines.append("")
+              lines.append("| Board | Item | Age | ⚠ |")
+              lines.append("|---|---|---|---|")
+              for label, board_url, item_title, item_url, updated in in_qa:
+                  age_days = (now - updated).days
+                  stale_mark = "⚠️" if updated < stale_cutoff else ""
+                  # Truncate long titles
+                  short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_days}d | {stale_mark} |")
+              lines.append("")
+          else:
+              lines.append("## 🔍 In QA — clear ✅")
+              lines.append("")
+              lines.append("Nothing waiting on you.")
+              lines.append("")
+
+          if in_progress:
+              lines.append(f"## 🚧 In Progress — {len(in_progress)} item(s)")
+              lines.append("")
+              lines.append("| Board | Item | Last touched |")
+              lines.append("|---|---|---|")
+              for label, board_url, item_title, item_url, updated in in_progress:
+                  age_days = (now - updated).days
+                  age_str = "today" if age_days == 0 else f"{age_days}d ago"
+                  short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_str} |")
+              lines.append("")
+          else:
+              lines.append("## 🚧 In Progress — quiet")
+              lines.append("")
+              lines.append("Nothing actively being worked on across any board.")
+              lines.append("")
+
+          if done_recent:
+              lines.append(f"## ✅ Recently Done — {len(done_recent)} item(s) closed in the last {WINDOW_DAYS} days")
+              lines.append("")
+              lines.append("| Board | Item | Closed |")
+              lines.append("|---|---|---|")
+              for label, board_url, item_title, item_url, updated in done_recent:
+                  age_days = (now - updated).days
+                  age_str = "today" if age_days == 0 else f"{age_days}d ago"
+                  short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_str} |")
+              lines.append("")
+
+          lines.append("---")
+          lines.append("")
+          lines.append(f"Boards queried: {len(BOARDS)}. Runs weekly on Mondays 06:00 UTC via [`weekly-digest.yml`](https://github.com/Godimas101/.github/blob/main/.github/workflows/weekly-digest.yml). Previous week's digest is auto-closed. Manual re-run: **Actions → Weekly status digest → Run workflow**.")
+
+          body = "\n".join(lines)
+          title = f"Weekly status digest — {today.isoformat()}"
+
+          # Close previous open digests (use default GITHUB_TOKEN — repo-scoped)
+          default_env = os.environ.copy()
+          default_env["GH_TOKEN"] = os.environ.get("DEFAULT_TOKEN", "")
+          prev = subprocess.check_output(
+              ["gh", "issue", "list", "--state", "open", "--label", "weekly-digest",
+               "--json", "number,title"],
+              env=default_env, text=True, encoding="utf-8"
+          )
+          for iss in json.loads(prev):
+              if iss["title"] == title:
+                  continue  # today's — skip
+              subprocess.check_call(
+                  ["gh", "issue", "close", str(iss["number"]),
+                   "--comment", f"Superseded by {title}"],
+                  env=default_env,
+              )
+              print(f"  closed previous digest: #{iss['number']} — {iss['title']}")
+
+          # Check if today's digest exists — if so, edit its body; else create
+          today_exists = any(iss["title"] == title for iss in json.loads(prev))
+          with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tmp:
+              tmp.write(body)
+              tmp_path = tmp.name
+
+          if today_exists:
+              # Find the number
+              num = next(iss["number"] for iss in json.loads(prev) if iss["title"] == title)
+              subprocess.check_call(
+                  ["gh", "issue", "edit", str(num), "--body-file", tmp_path],
+                  env=default_env,
+              )
+              print(f"  updated existing: #{num} — {title}")
+          else:
+              subprocess.check_call(
+                  ["gh", "issue", "create",
+                   "--title", title, "--body-file", tmp_path,
+                   "--label", "weekly-digest"],
+                  env=default_env,
+              )
+              print(f"  filed: {title}")
+          PY
