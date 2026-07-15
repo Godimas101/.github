@@ -225,7 +225,8 @@ jobs:
           default_env = os.environ.copy()
           default_env["GH_TOKEN"] = os.environ.get("DEFAULT_TOKEN", "")
           prev = subprocess.check_output(
-              ["gh", "issue", "list", "--state", "open", "--label", "weekly-digest",
+              ["gh", "issue", "list", "-R", "Godimas101/.github",
+               "--state", "open", "--label", "weekly-digest",
                "--json", "number,title"],
               env=default_env, text=True, encoding="utf-8"
           )
@@ -233,7 +234,8 @@ jobs:
               if iss["title"] == title:
                   continue  # today's — skip
               subprocess.check_call(
-                  ["gh", "issue", "close", str(iss["number"]),
+                  ["gh", "issue", "close", "-R", "Godimas101/.github",
+                   str(iss["number"]),
                    "--comment", f"Superseded by {title}"],
                   env=default_env,
               )
@@ -246,16 +248,16 @@ jobs:
               tmp_path = tmp.name
 
           if today_exists:
-              # Find the number
               num = next(iss["number"] for iss in json.loads(prev) if iss["title"] == title)
               subprocess.check_call(
-                  ["gh", "issue", "edit", str(num), "--body-file", tmp_path],
+                  ["gh", "issue", "edit", "-R", "Godimas101/.github",
+                   str(num), "--body-file", tmp_path],
                   env=default_env,
               )
               print(f"  updated existing: #{num} — {title}")
           else:
               subprocess.check_call(
-                  ["gh", "issue", "create",
+                  ["gh", "issue", "create", "-R", "Godimas101/.github",
                    "--title", title, "--body-file", tmp_path,
                    "--label", "weekly-digest"],
                   env=default_env,
