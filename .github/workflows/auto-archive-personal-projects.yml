@@ -1,0 +1,152 @@
+name: Auto-archive old Done items on Personal Projects board
+
+on:
+  schedule:
+    - cron: '0 5 * * 0'  # Sunday 05:00 UTC (same cadence as gitpush-mod boards)
+  workflow_dispatch:
+    inputs:
+      days_old:
+        description: 'Days after which Done items are archived'
+        required: false
+        default: '30'
+      dry_run:
+        description: 'Dry run (no writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    env:
+      USER_LOGIN: Godimas101
+      BOARD_NUMBER: 2
+      DAYS_OLD: ${{ inputs.days_old || '30' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      # PERSONAL_PROJECT_TOKEN must be a fine-grained PAT with:
+      #   - "Projects" (Read + Write) on Godimas101's user account
+      # Set at repo-level: gh secret set PERSONAL_PROJECT_TOKEN -R Godimas101/.github
+      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+    steps:
+      - name: Archive Done items older than ${{ inputs.days_old || '30' }} days
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set on Godimas101/.github."
+            echo "::error::Create a fine-grained PAT with User → Projects (Read+Write) and add it as a repo secret."
+            exit 1
+          fi
+
+          THRESHOLD=$(date -u -d "$DAYS_OLD days ago" +%s)
+          echo "Board: https://github.com/users/$USER_LOGIN/projects/$BOARD_NUMBER"
+          echo "Threshold: $DAYS_OLD days → cutoff $(date -u -d "@$THRESHOLD" '+%Y-%m-%d %H:%M UTC')"
+          echo "Dry run: $DRY_RUN"
+          echo
+
+          META=$(gh api graphql -f query='
+            query($login: String!, $num: Int!) {
+              user(login: $login) {
+                projectV2(number: $num) {
+                  id
+                  title
+                  field(name: "Status") {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      options { id name }
+                    }
+                  }
+                }
+              }
+            }' -f login="$USER_LOGIN" -F num=$BOARD_NUMBER)
+
+          PROJECT_ID=$(echo "$META" | jq -r '.data.user.projectV2.id // empty')
+          TITLE=$(echo "$META" | jq -r '.data.user.projectV2.title // "?"')
+          FIELD_ID=$(echo "$META" | jq -r '.data.user.projectV2.field.id // empty')
+          DONE_ID=$(echo "$META" | jq -r '.data.user.projectV2.field.options[]? | select(.name=="Done") | .id')
+          ARCHIVED_ID=$(echo "$META" | jq -r '.data.user.projectV2.field.options[]? | select(.name=="Archived") | .id')
+
+          if [[ -z "$PROJECT_ID" || -z "$FIELD_ID" || -z "$DONE_ID" || -z "$ARCHIVED_ID" ]]; then
+            echo "::error::Missing IDs (project=$PROJECT_ID field=$FIELD_ID done=$DONE_ID archived=$ARCHIVED_ID)"
+            echo "::error::Ensure the board has both 'Done' and 'Archived' options in the Status field."
+            exit 1
+          fi
+          echo "[$TITLE] project=$PROJECT_ID"
+
+          CURSOR=""
+          COUNT=0
+          while :; do
+            if [[ -z "$CURSOR" ]]; then
+              RESULT=$(gh api graphql -f query='
+                query($id: ID!) {
+                  node(id: $id) {
+                    ... on ProjectV2 {
+                      items(first: 100) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          updatedAt
+                          fieldValueByName(name: "Status") {
+                            ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }' -f id="$PROJECT_ID")
+            else
+              RESULT=$(gh api graphql -f query='
+                query($id: ID!, $cursor: String!) {
+                  node(id: $id) {
+                    ... on ProjectV2 {
+                      items(first: 100, after: $cursor) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          updatedAt
+                          fieldValueByName(name: "Status") {
+                            ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }' -f id="$PROJECT_ID" -f cursor="$CURSOR")
+            fi
+
+            MAPFILE=$(echo "$RESULT" | jq -r --arg th "$THRESHOLD" --arg done_id "$DONE_ID" '
+              .data.node.items.nodes[]
+              | select(.fieldValueByName.optionId == $done_id)
+              | select((.updatedAt | fromdateiso8601) < ($th | tonumber))
+              | .id
+            ')
+
+            if [[ -n "$MAPFILE" ]]; then
+              while IFS= read -r ITEM_ID; do
+                [[ -z "$ITEM_ID" ]] && continue
+                if [[ "$DRY_RUN" == "true" ]]; then
+                  echo "  [DRY] would archive $ITEM_ID"
+                else
+                  gh api graphql -f query='
+                    mutation($p: ID!, $i: ID!, $f: ID!, $v: String!) {
+                      updateProjectV2ItemFieldValue(input: {
+                        projectId: $p, itemId: $i, fieldId: $f,
+                        value: { singleSelectOptionId: $v }
+                      }) { projectV2Item { id } }
+                    }' -f p="$PROJECT_ID" -f i="$ITEM_ID" -f f="$FIELD_ID" -f v="$ARCHIVED_ID" > /dev/null
+                  echo "  ✓ archived $ITEM_ID"
+                fi
+                COUNT=$((COUNT + 1))
+              done <<< "$MAPFILE"
+            fi
+
+            HAS_NEXT=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.hasNextPage')
+            if [[ "$HAS_NEXT" != "true" ]]; then break; fi
+            CURSOR=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.endCursor')
+          done
+
+          echo "=== $COUNT items archived on Personal Projects board ==="
