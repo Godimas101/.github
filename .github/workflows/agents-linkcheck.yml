@@ -1,0 +1,276 @@
+name: Quarterly AGENTS.md link check
+
+# 1st of Jan/Apr/Jul/Oct at 05:00 UTC — fetches AGENTS.md from every repo
+# Chris owns across all 3 orgs, extracts URLs, tests each one, files an
+# issue on this repo listing any dead links.
+#
+# Prevents AGENTS.md drift: when a repo moves, a board URL changes, or a
+# memory file gets renamed, the AGENTS.md-embedded links go stale silently.
+# This catches that.
+#
+# Uses PERSONAL_PROJECT_TOKEN — needs `repo` scope for reading private
+# repos' AGENTS.md files.
+
+on:
+  schedule:
+    - cron: '0 5 1 1,4,7,10 *'  # 1st of Jan/Apr/Jul/Oct 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print report without filing an issue'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  linkcheck:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+      DEFAULT_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+    steps:
+      - name: Scan + report
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set."
+            exit 1
+          fi
+
+          python3 <<'PY'
+          import base64
+          import concurrent.futures as cf
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import tempfile
+          import urllib.request
+          import urllib.error
+          from datetime import datetime, timezone
+
+          OWNERS = ["Godimas101", "gitpush-mod", "The-Canadian-Space"]
+          URL_RE = re.compile(r"https?://[^\s)>\]\"']+")
+          TIMEOUT = 10  # seconds per URL
+          DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+
+          def gh_env():
+              e = os.environ.copy()
+              e["GH_TOKEN"] = os.environ["GH_TOKEN"]
+              return e
+
+          def list_repos(owner):
+              """Return list of repo names for owner."""
+              try:
+                  out = subprocess.check_output(
+                      ["gh", "repo", "list", owner, "--limit", "100",
+                       "--json", "name,isArchived",
+                       "--jq", ".[] | select(.isArchived == false) | .name"],
+                      env=gh_env(), text=True, encoding="utf-8",
+                  )
+                  return [r for r in out.strip().splitlines() if r]
+              except subprocess.CalledProcessError as e:
+                  print(f"::warning::gh repo list {owner} failed: {e}")
+                  return []
+
+          def fetch_agents_md(owner, repo):
+              """Return AGENTS.md content or None."""
+              try:
+                  raw = subprocess.check_output(
+                      ["gh", "api", f"repos/{owner}/{repo}/contents/AGENTS.md"],
+                      env=gh_env(), text=True, encoding="utf-8",
+                      stderr=subprocess.DEVNULL,
+                  )
+                  data = json.loads(raw)
+                  return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+              except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+                  return None
+
+          def extract_urls(text):
+              urls = set()
+              for m in URL_RE.finditer(text):
+                  url = m.group(0)
+                  # Strip trailing punctuation that URL_RE overmatches
+                  url = url.rstrip(".,;:!?")
+                  # Skip common placeholders / shields.io / raw githubusercontent (shields = always up)
+                  if any(x in url for x in ("shields.io", "capsule-render.vercel.app")):
+                      continue
+                  # Skip loopback / example
+                  if url.startswith("http://localhost") or "example.com" in url:
+                      continue
+                  urls.add(url)
+              return sorted(urls)
+
+          def test_url(url):
+              """Return (url, status) — status is int HTTP code, 0 for timeout, -1 for other error."""
+              req = urllib.request.Request(url, method="HEAD", headers={
+                  "User-Agent": "godimas101-linkcheck/1.0",
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                      return (url, r.status)
+              except urllib.error.HTTPError as e:
+                  # HEAD may 405 on some servers — retry GET
+                  if e.code in (403, 405):
+                      try:
+                          req_get = urllib.request.Request(url, headers={"User-Agent": "godimas101-linkcheck/1.0"})
+                          with urllib.request.urlopen(req_get, timeout=TIMEOUT) as r:
+                              return (url, r.status)
+                      except Exception:
+                          return (url, e.code)
+                  return (url, e.code)
+              except urllib.error.URLError as e:
+                  reason = str(e.reason).lower()
+                  if "timeout" in reason:
+                      return (url, 0)
+                  return (url, -1)
+              except Exception:
+                  return (url, -1)
+
+          # Discover repos
+          all_repos = []
+          for owner in OWNERS:
+              names = list_repos(owner)
+              for name in names:
+                  all_repos.append((owner, name))
+              print(f"  discovered {len(names)} repos in {owner}")
+
+          # Fetch AGENTS.md from each
+          repos_with_agents = []
+          for owner, repo in all_repos:
+              text = fetch_agents_md(owner, repo)
+              if text:
+                  repos_with_agents.append((owner, repo, text))
+          print(f"  {len(repos_with_agents)}/{len(all_repos)} repos have AGENTS.md")
+
+          # Extract URLs per repo
+          per_repo_urls = {}
+          all_urls = set()
+          for owner, repo, text in repos_with_agents:
+              urls = extract_urls(text)
+              per_repo_urls[(owner, repo)] = urls
+              all_urls.update(urls)
+
+          print(f"  {len(all_urls)} unique URLs across all AGENTS.md files")
+
+          # Test URLs in parallel
+          broken = {}  # url → status
+          with cf.ThreadPoolExecutor(max_workers=20) as ex:
+              for url, status in ex.map(test_url, sorted(all_urls)):
+                  if status == 200 or (300 <= status < 400):
+                      continue
+                  broken[url] = status
+
+          print(f"  {len(broken)} broken URLs")
+
+          # Build report
+          now = datetime.now(timezone.utc)
+          today = now.date().isoformat()
+          lines = [
+              f"Quarterly AGENTS.md link check — **{today}**.",
+              "",
+              f"Scanned **{len(repos_with_agents)}** AGENTS.md files across {len(OWNERS)} GitHub owners. Found **{len(all_urls)}** unique URLs; **{len(broken)}** are dead.",
+              "",
+          ]
+          if not broken:
+              lines.append("## ✅ Everything resolves")
+              lines.append("")
+              lines.append("No dead links. Nice.")
+          else:
+              lines.append(f"## 💀 Dead URLs — {len(broken)}")
+              lines.append("")
+              lines.append("| URL | HTTP | Appears in |")
+              lines.append("|---|---|---|")
+              # Which repos reference each broken URL
+              for url in sorted(broken.keys()):
+                  status = broken[url]
+                  status_str = (
+                      "timeout" if status == 0
+                      else "error" if status == -1
+                      else str(status)
+                  )
+                  repos_mentioning = [
+                      f"[{owner}/{repo}](https://github.com/{owner}/{repo}/blob/main/AGENTS.md)"
+                      for (owner, repo), urls in per_repo_urls.items()
+                      if url in urls
+                  ]
+                  repos_str = "<br>".join(repos_mentioning[:5])
+                  if len(repos_mentioning) > 5:
+                      repos_str += f"<br>...+{len(repos_mentioning) - 5} more"
+                  # Truncate long URLs
+                  short = url if len(url) <= 80 else url[:77] + "..."
+                  lines.append(f"| [{short}]({url}) | {status_str} | {repos_str} |")
+              lines.append("")
+              lines.append("## 🛠️ Fix suggestions")
+              lines.append("")
+              lines.append("- **404 on a repo URL** → repo renamed or moved. Update the AGENTS.md path.")
+              lines.append("- **404 on a memory `[[reference-name]]`-style link** → the memory file was renamed. Check `MEMORY.md`.")
+              lines.append("- **404 on a board URL** → board number changed. Query `gh api graphql` to find the new one.")
+              lines.append("- **timeout** on a Sarna / Steam Workshop / Nexus URL → they may be temporarily down. Re-run this workflow in a day to confirm.")
+
+          lines.append("")
+          lines.append("---")
+          lines.append("")
+          lines.append(f"Ran via [`agents-linkcheck.yml`](https://github.com/Godimas101/.github/blob/main/.github/workflows/agents-linkcheck.yml). Next scheduled run: quarterly (1st of Jan/Apr/Jul/Oct at 05:00 UTC). Manual re-run: **Actions → Quarterly AGENTS.md link check → Run workflow**.")
+
+          body = "\n".join(lines)
+          title = f"AGENTS.md link check — {today}"
+
+          if DRY_RUN:
+              print("--- DRY RUN — would file/update ---")
+              print(f"Title: {title}")
+              print()
+              print(body[:2000])
+              sys.exit(0)
+
+          # File issue (or skip if no broken URLs and no prior open issue)
+          default_env = os.environ.copy()
+          default_env["GH_TOKEN"] = os.environ.get("DEFAULT_TOKEN", "")
+
+          # Close previous open link-check issues (regardless of whether the current run finds anything —
+          # we always want the latest one to be the source of truth)
+          try:
+              prev = subprocess.check_output(
+                  ["gh", "issue", "list", "-R", "Godimas101/.github",
+                   "--state", "open", "--label", "agents-linkcheck",
+                   "--json", "number,title"],
+                  env=default_env, text=True, encoding="utf-8",
+              )
+              for iss in json.loads(prev):
+                  if iss["title"] == title:
+                      continue
+                  subprocess.check_call(
+                      ["gh", "issue", "close", "-R", "Godimas101/.github",
+                       str(iss["number"]),
+                       "--comment", f"Superseded by {title}"],
+                      env=default_env,
+                  )
+                  print(f"  closed previous: #{iss['number']}")
+          except subprocess.CalledProcessError as e:
+              print(f"::warning::could not list previous: {e}")
+
+          if not broken:
+              # No broken links — don't spam an issue, just log
+              print("  no broken URLs — not filing an issue")
+              sys.exit(0)
+
+          with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tmp:
+              tmp.write(body)
+              tmp_path = tmp.name
+
+          subprocess.check_call(
+              ["gh", "issue", "create", "-R", "Godimas101/.github",
+               "--title", title, "--body-file", tmp_path,
+               "--label", "agents-linkcheck"],
+              env=default_env,
+          )
+          print(f"  filed: {title}")
+          PY
