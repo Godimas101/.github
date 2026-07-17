@@ -173,6 +173,7 @@ jobs:
               "discord.com/users",
               "steamcommunity.com",
               "nexusmods.com",
+              "claude.ai",
           )
           
           # ---------------- HELPERS ----------------
