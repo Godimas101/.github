@@ -1,0 +1,572 @@
+name: Monthly source-of-truth drift check
+
+# 1st Monday of every month at 05:00 UTC. Extends the quarterly agents-linkcheck
+# pattern to a wider set of source-of-truth docs. Runs 3 checks (v1):
+#   1. URL resolution across an expanded README set (portfolio, org profiles,
+#      mods, tools, public TCS)
+#   2. README section-presence for gitpush-mod mods
+#   3. Capsule-render alignment for gitpush-mod mods
+#
+# Files ONE aggregated issue on Godimas101/.github labeled `monthly-drift`.
+# Closes the previous month's issue.
+#
+# Deferred to future iterations (see personal-docs/MONTHLY_MAINTENANCE.md):
+#   - AGENTS.md required-section check (varied idiomatic section names)
+#   - Memory file freshness
+#   - Cross-repo consistency (REPO_FAMILY.md vs actual repos)
+#   - Portfolio-specific project-freshness checks
+#   - Workflow reference validity in git-infrastructure.md
+#   - AGENTS.md 12-month staleness
+#   - CLAUDE.md stub validation
+#
+# Uses PERSONAL_PROJECT_TOKEN — needs `repo` scope for reading private
+# repos' READMEs, plus GraphQL access for project existence checks.
+
+on:
+  schedule:
+    - cron: '0 5 1-7 * 1'  # 1st Monday of month, 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print report without filing an issue'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+      DEFAULT_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+    steps:
+      - name: Scan + report
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set."
+            exit 1
+          fi
+
+          python3 <<'PYEOF'
+          """
+          Monthly source-of-truth drift check — v1 (Week 1 scope).
+          
+          Implements 3 automated checks:
+            1. URL resolution across an expanded README set
+            2. README section-presence for gitpush-mod mods
+            3. Capsule-render alignment for gitpush-mod mods
+          
+          Runs monthly (1st Monday 05:00 UTC). Files ONE aggregated issue on
+          Godimas101/.github labeled `monthly-drift`. Closes the previous month's.
+          
+          DEFERRED (pending template standardization):
+            - AGENTS.md required-section check — Chris's AGENTS.md files use varied
+              idiomatic section names ("What this is" vs "What lives here"); a strict
+              template check produces too much noise. Revisit once templates are
+              consistent across repos.
+          
+          Env vars:
+            GH_TOKEN         — PAT with `repo` scope (PERSONAL_PROJECT_TOKEN in Actions)
+            DEFAULT_TOKEN    — repo-scoped token for filing the issue (github.token in Actions)
+            DRY_RUN          — 'true' skips issue filing, prints to stdout
+          """
+          import base64
+          import concurrent.futures as cf
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import tempfile
+          import urllib.request
+          import urllib.error
+          from datetime import datetime, timezone
+          from urllib.parse import urlparse, parse_qs
+          
+          # ---------------- CONFIG ----------------
+          
+          OWNERS = ["Godimas101", "gitpush-mod", "The-Canadian-Space"]
+          TIMEOUT = 10
+          
+          DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+          
+          # File set — (owner, repo, path). None path = README.md.
+          # Sourced from personal-docs/MONTHLY_MAINTENANCE.md Tier 1 artifact list.
+          FILE_SET = [
+              # Portfolio
+              ("Godimas101", "portfolio", "docs/index.md"),
+              # Personal + org profiles
+              ("Godimas101", "Godimas101", "README.md"),
+              ("gitpush-mod", ".github", "profile/README.md"),
+              ("The-Canadian-Space", ".github", "profile/README.md"),
+              # gitpush-mod mods (10)
+              ("gitpush-mod", "se-infolcd-apex-update", "README.md"),
+              ("gitpush-mod", "se-infolcd-apex-advanced", "README.md"),
+              ("gitpush-mod", "se-not-just-for-looks", "README.md"),
+              ("gitpush-mod", "se-not-just-for-looks-additions", "README.md"),
+              ("gitpush-mod", "se-not-just-for-looks-without-weapons", "README.md"),
+              ("gitpush-mod", "se-tiered-build-and-repair", "README.md"),
+              ("gitpush-mod", "se-sg-core-mods", "README.md"),
+              ("gitpush-mod", "se-mod-adjuster-mods", "README.md"),
+              ("gitpush-mod", "mw5-zulibetterheroes-reforged", "README.md"),
+              ("gitpush-mod", "mw5-r13vergrrl", "README.md"),
+              # Godimas101 tools
+              ("Godimas101", "universal-image-converter", "README.md"),
+              ("Godimas101", "universal-audio-converter", "README.md"),
+              ("Godimas101", "claude-usage-monitor", "README.md"),
+              ("Godimas101", "se-claude-skill", "README.md"),
+              ("Godimas101", "space-engineers-modders-tool-kit", "README.md"),
+              ("Godimas101", "claude-engineers-maximum-immersion", "README.md"),
+              ("Godimas101", "automatic-weight-recording", "README.md"),
+              # Public TCS
+              ("The-Canadian-Space", "tcs-tools", "README.md"),
+              ("The-Canadian-Space", "tcs-scripts", "README.md"),
+              ("The-Canadian-Space", "tcs-public-wiki", "README.md"),
+              ("The-Canadian-Space", "tcs-images", "README.md"),
+              ("The-Canadian-Space", "tcs-docs", "README.md"),
+              ("The-Canadian-Space", "tcs-archive", "README.md"),
+          ]
+          
+          # Repos that are gitpush-mod mods (get section-presence + capsule alignment checks)
+          MOD_REPOS = {
+              "se-infolcd-apex-update", "se-infolcd-apex-advanced",
+              "se-not-just-for-looks", "se-not-just-for-looks-additions", "se-not-just-for-looks-without-weapons",
+              "se-tiered-build-and-repair", "se-sg-core-mods", "se-mod-adjuster-mods",
+              "mw5-zulibetterheroes-reforged", "mw5-r13vergrrl",
+          }
+          
+          # Required H2 sections per family (matched case-insensitively as substrings against H2 titles).
+          # Kept intentionally narrow — only truly universal sections that ALL current repos have.
+          # Broader templates ("features", "purpose", "working principles") produced noise on the
+          # first dry-run because they aren't consistently applied. Add back only after the templates
+          # are actually enforced across all repos.
+          MOD_REQUIRED_SECTIONS = ["install", "compatibility", "support", "bug"]
+          AGENTS_REQUIRED_SECTIONS = ["what lives", "verify", "related"]
+          # "support" catches "Support / Patreon"; "bug" catches "Bug reports" / "Bug-report" / "Found a bug?"
+          # "verify" catches "How to verify"
+          
+          # Expected capsule params for gitpush-mod mods (from REPO_FAMILY.md)
+          MOD_CAPSULE_EXPECTED = {
+              "type": "waving",
+              "height": "200",
+              "fontAlignY": "42",
+              "descAlignY": "68",
+          }
+          
+          # URL patterns skipped in URL check.
+          # - shields.io, capsule-render: always up, no signal from checking
+          # - patreon, linkedin, discord.com/users, steamcommunity, nexusmods: aggressive bot-blocking.
+          #   These return 403/405/407 to HEAD/GET from urllib even when the URL is valid in a browser.
+          URL_SKIP_PATTERNS = (
+              "shields.io",
+              "capsule-render.vercel.app",
+              "patreon.com",
+              "linkedin.com",
+              "discord.com/users",
+              "steamcommunity.com",
+              "nexusmods.com",
+          )
+          
+          # ---------------- HELPERS ----------------
+          
+          def gh_env():
+              e = os.environ.copy()
+              e["GH_TOKEN"] = os.environ["GH_TOKEN"]
+              return e
+          
+          def fetch_file(owner, repo, path):
+              """Return file content decoded UTF-8, or None if not found."""
+              try:
+                  raw = subprocess.check_output(
+                      ["gh", "api", f"repos/{owner}/{repo}/contents/{path}"],
+                      env=gh_env(), text=True, encoding="utf-8",
+                      stderr=subprocess.DEVNULL,
+                  )
+                  data = json.loads(raw)
+                  return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+              except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+                  return None
+          
+          def list_repos(owner):
+              try:
+                  out = subprocess.check_output(
+                      ["gh", "repo", "list", owner, "--limit", "100",
+                       "--json", "name,isArchived",
+                       "--jq", ".[] | select(.isArchived == false) | .name"],
+                      env=gh_env(), text=True, encoding="utf-8",
+                  )
+                  return [r for r in out.strip().splitlines() if r]
+              except subprocess.CalledProcessError:
+                  return []
+          
+          URL_RE = re.compile(r"https?://[^\s)>\]\"'`]+")
+          FENCED_CODE_RE = re.compile(r"```[a-zA-Z0-9]*\n.*?\n```", re.DOTALL)
+          
+          def strip_code_blocks(text):
+              """Remove fenced code blocks — URLs inside them are docs examples, not live refs."""
+              return FENCED_CODE_RE.sub("", text)
+          
+          def extract_urls(text):
+              text = strip_code_blocks(text)
+              urls = set()
+              for m in URL_RE.finditer(text):
+                  url = m.group(0).rstrip(".,;:!?")
+                  if any(x in url for x in URL_SKIP_PATTERNS):
+                      continue
+                  if url.startswith("http://localhost") or "example.com" in url:
+                      continue
+                  # Skip obvious documentation placeholders
+                  if "/path/to/" in url or "your-token-here" in url:
+                      continue
+                  urls.add(url)
+              return sorted(urls)
+          
+          GH_REPO_RE = re.compile(r"^https?://github\.com/([^/]+)/([^/#?]+?)(?:/|$|\?|#|\.git)")
+          GH_PROJECT_RE = re.compile(r"^https?://github\.com/(?:orgs/([^/]+)|users/([^/]+))/projects/(\d+)")
+          
+          def test_url(url):
+              """Return (url, status). status: int HTTP code, 0=timeout, -1=other error."""
+              # PROJECT URLs FIRST — otherwise the repo regex matches "orgs/The-Canadian-Space"
+              # and falls through to urllib, which 404s because private projects need auth.
+              m_proj = GH_PROJECT_RE.match(url)
+              if m_proj:
+                  org, user, num = m_proj.group(1), m_proj.group(2), m_proj.group(3)
+                  owner_type = "organization" if org else "user"
+                  owner = org or user
+                  q = '{ ' + owner_type + '(login: "' + owner + '") { projectV2(number: ' + num + ') { id } } }'
+                  try:
+                      out = subprocess.check_output(
+                          ["gh", "api", "graphql", "-f", f"query={q}"],
+                          env=gh_env(), text=True, encoding="utf-8", stderr=subprocess.DEVNULL,
+                      )
+                      data = json.loads(out)
+                      if (data.get("data", {}).get(owner_type) or {}).get("projectV2"):
+                          return (url, 200)
+                      return (url, 404)
+                  except (subprocess.CalledProcessError, json.JSONDecodeError):
+                      return (url, 404)
+          
+              # github.com/{owner}/{repo} URLs — use gh api to bypass anonymous 404s on private repos.
+              m_repo = GH_REPO_RE.match(url)
+              if m_repo:
+                  owner, repo = m_repo.group(1), m_repo.group(2)
+                  if owner.lower() in {"settings", "orgs", "users", "features", "topics", "marketplace", "sponsors", "notifications", "explore", "search"}:
+                      return _test_urllib(url)
+                  try:
+                      subprocess.check_output(
+                          ["gh", "api", f"repos/{owner}/{repo}"],
+                          env=gh_env(), text=True, encoding="utf-8", stderr=subprocess.DEVNULL,
+                      )
+                      return (url, 200)
+                  except subprocess.CalledProcessError:
+                      return (url, 404)
+          
+              return _test_urllib(url)
+          
+          def _test_urllib(url):
+              req = urllib.request.Request(url, method="HEAD", headers={
+                  "User-Agent": "godimas101-monthly-drift/1.0",
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                      return (url, r.status)
+              except urllib.error.HTTPError as e:
+                  if e.code in (403, 405):
+                      try:
+                          req_get = urllib.request.Request(url, headers={"User-Agent": "godimas101-monthly-drift/1.0"})
+                          with urllib.request.urlopen(req_get, timeout=TIMEOUT) as r:
+                              return (url, r.status)
+                      except Exception:
+                          return (url, e.code)
+                  return (url, e.code)
+              except urllib.error.URLError as e:
+                  reason = str(e.reason).lower()
+                  return (url, 0 if "timeout" in reason else -1)
+              except Exception:
+                  return (url, -1)
+          
+          H2_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
+          
+          def get_h2_sections(text):
+              """Return list of H2 section titles, lowercased, punctuation stripped."""
+              return [re.sub(r"[^a-z0-9\s/]", "", m.group(1).lower()).strip() for m in H2_RE.finditer(text)]
+          
+          def missing_sections(text, required):
+              """Return list of required sections NOT present as substrings in any H2."""
+              sections = get_h2_sections(text)
+              joined = " | ".join(sections)
+              return [req for req in required if req not in joined]
+          
+          CAPSULE_RE = re.compile(r"https://capsule-render\.vercel\.app/api\?([^\s\"'<>)]+)")
+          
+          def extract_capsule_params(text):
+              """Return list of {param: value} dicts for every capsule URL in text."""
+              results = []
+              for m in CAPSULE_RE.finditer(text):
+                  query = m.group(1)
+                  # HTML entities that may appear inside the query string
+                  query = query.replace("&amp;", "&")
+                  params = parse_qs(query)
+                  # Flatten single-value params
+                  flat = {k: v[0] if v else "" for k, v in params.items()}
+                  results.append(flat)
+              return results
+          
+          def check_capsule_alignment(text, expected):
+              """Return list of drift-descriptions for mismatched or missing params."""
+              capsules = extract_capsule_params(text)
+              if not capsules:
+                  return ["no capsule-render URL found"]
+              # We check ONLY the first capsule (the header) — mod READMEs typically have one
+              first = capsules[0]
+              misses = []
+              for k, v in expected.items():
+                  if k not in first:
+                      misses.append(f"missing param `{k}` (expected `{v}`)")
+                  elif first[k] != v:
+                      misses.append(f"param `{k}` = `{first[k]}`, expected `{v}`")
+              return misses
+          
+          # ---------------- CHECKS ----------------
+          
+          Finding = dict  # {tier, artifact, check, severity, description}
+          
+          def run_url_check(files):
+              """CHECK 1: URL resolution across all files."""
+              findings = []
+              # Collect all URLs → sources
+              url_sources = {}  # url → set of (owner, repo, path)
+              for (owner, repo, path), text in files.items():
+                  if text is None:
+                      continue
+                  for url in extract_urls(text):
+                      url_sources.setdefault(url, set()).add((owner, repo, path))
+          
+              print(f"  [url-check] testing {len(url_sources)} unique URLs...")
+              broken = {}
+              with cf.ThreadPoolExecutor(max_workers=20) as ex:
+                  for url, status in ex.map(test_url, sorted(url_sources.keys())):
+                      if status == 200 or (300 <= status < 400):
+                          continue
+                      broken[url] = status
+          
+              for url, status in broken.items():
+                  sources = url_sources[url]
+                  for (owner, repo, path) in sources:
+                      artifact = f"{owner}/{repo}/{path}"
+                      status_str = "timeout" if status == 0 else ("error" if status == -1 else str(status))
+                      findings.append({
+                          "tier": 1 if owner != "Godimas101" or repo == "portfolio" else 2,
+                          "artifact": artifact,
+                          "check": "url-check",
+                          "severity": "critical",
+                          "description": f"dead URL [{status_str}]: {url}",
+                      })
+              return findings
+          
+          def run_section_presence_check(files):
+              """CHECK 2: Mod README required-section presence."""
+              findings = []
+              for (owner, repo, path), text in files.items():
+                  if text is None:
+                      continue
+                  if repo not in MOD_REPOS:
+                      continue
+                  missing = missing_sections(text, MOD_REQUIRED_SECTIONS)
+                  if missing:
+                      findings.append({
+                          "tier": 1,
+                          "artifact": f"{owner}/{repo}/{path}",
+                          "check": "section-presence",
+                          "severity": "warning",
+                          "description": f"missing required section(s): {', '.join(missing)}",
+                      })
+              return findings
+          
+          def run_capsule_alignment_check(files):
+              """CHECK 3: Mod README capsule alignment."""
+              findings = []
+              for (owner, repo, path), text in files.items():
+                  if text is None:
+                      continue
+                  if repo not in MOD_REPOS:
+                      continue
+                  drift = check_capsule_alignment(text, MOD_CAPSULE_EXPECTED)
+                  if drift:
+                      findings.append({
+                          "tier": 1,
+                          "artifact": f"{owner}/{repo}/{path}",
+                          "check": "capsule-alignment",
+                          "severity": "warning",
+                          "description": "; ".join(drift),
+                      })
+              return findings
+          
+          def run_agents_md_sections_check():
+              """CHECK 8: AGENTS.md required-section presence across all repos."""
+              findings = []
+              all_repos = []
+              for owner in OWNERS:
+                  for name in list_repos(owner):
+                      all_repos.append((owner, name))
+              print(f"  [agents-sections] {len(all_repos)} repos, fetching AGENTS.md each...")
+              for owner, repo in all_repos:
+                  text = fetch_file(owner, repo, "AGENTS.md")
+                  if text is None:
+                      continue
+                  missing = missing_sections(text, AGENTS_REQUIRED_SECTIONS)
+                  if missing:
+                      findings.append({
+                          "tier": 2,
+                          "artifact": f"{owner}/{repo}/AGENTS.md",
+                          "check": "agents-md-sections",
+                          "severity": "warning",
+                          "description": f"missing required section(s): {', '.join(missing)}",
+                      })
+              return findings
+          
+          # ---------------- REPORT ----------------
+          
+          def build_report(findings, files_scanned):
+              now = datetime.now(timezone.utc)
+              today = now.date().isoformat()
+          
+              lines = [
+                  f"Monthly source-of-truth drift check — **{today}**.",
+                  "",
+                  f"Scanned **{files_scanned}** source-of-truth files across {len(OWNERS)} GitHub owners. Ran **3** automated checks. Found **{len(findings)}** drift items.",
+                  "",
+                  "Checklist source: [`personal-docs/MONTHLY_MAINTENANCE.md`](https://github.com/Godimas101/personal-docs/blob/main/MONTHLY_MAINTENANCE.md). Human-review (🧠) items from that file are not evaluated here — walk them manually alongside this report.",
+                  "",
+              ]
+          
+              if not findings:
+                  lines.append("## ✅ Everything checks out")
+                  lines.append("")
+                  lines.append("Zero drift across the 4 automated checks. Nice.")
+              else:
+                  by_tier = {1: [], 2: [], 3: []}
+                  for f in findings:
+                      by_tier[f["tier"]].append(f)
+          
+                  for tier_num, tier_label in [
+                      (1, "Tier 1 — Public-facing"),
+                      (2, "Tier 2 — Agent context"),
+                      (3, "Tier 3 — Infrastructure"),
+                  ]:
+                      tier_findings = by_tier[tier_num]
+                      if not tier_findings:
+                          continue
+                      lines.append(f"## {tier_label} — {len(tier_findings)} item(s)")
+                      lines.append("")
+                      by_artifact = {}
+                      for f in tier_findings:
+                          by_artifact.setdefault(f["artifact"], []).append(f)
+                      for artifact in sorted(by_artifact.keys()):
+                          lines.append(f"**{artifact}**")
+                          for f in by_artifact[artifact]:
+                              lines.append(f"- [{f['check']}] {f['description']}")
+                          lines.append("")
+          
+              lines.append("---")
+              lines.append("")
+              lines.append("**Automated checks run this month:** URL resolution · README section-presence (mods) · capsule-render alignment (mods). See [ticket](https://github.com/users/Godimas101/projects/2?pane=issue&itemId=213998380) for the full roadmap of pending checks.")
+              lines.append("")
+              lines.append(f"Ran via [`monthly-drift.yml`](https://github.com/Godimas101/.github/blob/main/.github/workflows/monthly-drift.yml). Next scheduled run: 1st Monday of next month, 05:00 UTC. Manual re-run: **Actions → Monthly source-of-truth drift check → Run workflow**.")
+          
+              return "\n".join(lines), f"Monthly drift — {today}"
+          
+          # ---------------- MAIN ----------------
+          
+          def main():
+              print("Monthly drift check starting...")
+              print(f"  DRY_RUN = {DRY_RUN}")
+          
+              # Step 1: fetch all files in the file set
+              files = {}  # (owner, repo, path) → text
+              print(f"  fetching {len(FILE_SET)} files...")
+              for owner, repo, path in FILE_SET:
+                  text = fetch_file(owner, repo, path)
+                  files[(owner, repo, path)] = text
+              successful = sum(1 for v in files.values() if v is not None)
+              print(f"  {successful}/{len(FILE_SET)} files fetched successfully")
+          
+              # Step 2: run the 4 checks
+              all_findings = []
+              all_findings.extend(run_url_check(files))
+              print(f"  [1/3] url-check done: {len(all_findings)} findings so far")
+          
+              section_findings = run_section_presence_check(files)
+              all_findings.extend(section_findings)
+              print(f"  [2/3] section-presence done: +{len(section_findings)} findings")
+          
+              capsule_findings = run_capsule_alignment_check(files)
+              all_findings.extend(capsule_findings)
+              print(f"  [3/3] capsule-alignment done: +{len(capsule_findings)} findings")
+          
+              print(f"\n  TOTAL: {len(all_findings)} drift findings")
+          
+              # Step 3: build report
+              body, title = build_report(all_findings, successful)
+          
+              # Step 4: file or dry-run
+              if DRY_RUN:
+                  print("\n--- DRY RUN — would file/update ---")
+                  print(f"Title: {title}")
+                  print()
+                  print(body)
+                  return 0
+          
+              default_env = os.environ.copy()
+              default_env["GH_TOKEN"] = os.environ.get("DEFAULT_TOKEN", "")
+          
+              # Close previous open drift issues
+              try:
+                  prev = subprocess.check_output(
+                      ["gh", "issue", "list", "-R", "Godimas101/.github",
+                       "--state", "open", "--label", "monthly-drift",
+                       "--json", "number,title"],
+                      env=default_env, text=True, encoding="utf-8",
+                  )
+                  for iss in json.loads(prev):
+                      if iss["title"] == title:
+                          continue
+                      subprocess.check_call(
+                          ["gh", "issue", "close", "-R", "Godimas101/.github",
+                           str(iss["number"]),
+                           "--comment", f"Superseded by {title}"],
+                          env=default_env,
+                      )
+                      print(f"  closed previous: #{iss['number']}")
+              except subprocess.CalledProcessError as e:
+                  print(f"::warning::could not list previous: {e}")
+          
+              # If clean, don't spam
+              if not all_findings:
+                  print("  clean — not filing an issue")
+                  return 0
+          
+              with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tmp:
+                  tmp.write(body)
+                  tmp_path = tmp.name
+          
+              subprocess.check_call(
+                  ["gh", "issue", "create", "-R", "Godimas101/.github",
+                   "--title", title, "--body-file", tmp_path,
+                   "--label", "monthly-drift"],
+                  env=default_env,
+              )
+              print(f"  filed: {title}")
+              return 0
+          
+          if __name__ == "__main__":
+              sys.exit(main())
+          PYEOF
