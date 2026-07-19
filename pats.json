@@ -44,8 +44,8 @@
       "installed_at": [
         "The-Canadian-Space org secret (or repo-level — verify)"
       ],
-      "created": "UNKNOWN",
-      "expires": "UNKNOWN",
+      "created": "2026-07-15",
+      "expires": "2027-07-14",
       "scope": "Organization Projects: Read + Write on The-Canadian-Space (assumed)",
       "used_by": [
         "TCS ticket-first automation (verify actual workflow files)"
