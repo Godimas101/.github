@@ -528,7 +528,17 @@ jobs:
           
               default_env = os.environ.copy()
               default_env["GH_TOKEN"] = os.environ.get("DEFAULT_TOKEN", "")
-          
+
+              # Ensure the monthly-drift label exists (idempotent — no-op if already present).
+              # Prevents `gh issue create --label monthly-drift` from hard-failing on fresh
+              # repos or if the label is ever manually deleted. See run 29726083694 (2026-07-20).
+              subprocess.run(
+                  ["gh", "label", "create", "monthly-drift", "-R", "Godimas101/.github",
+                   "--color", "F97316",
+                   "--description", "Automated monthly source-of-truth drift check"],
+                  env=default_env, stderr=subprocess.DEVNULL,
+              )
+
               # Close previous open drift issues
               try:
                   prev = subprocess.check_output(
