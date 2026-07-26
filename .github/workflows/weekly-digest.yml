@@ -150,6 +150,65 @@ jobs:
                   elif status == "Done" and updated >= window_start:
                       done_recent.append(entry)
 
+          # UNBOARDED_V1 (2026-07-25): walk repos across Chris's owners for open
+          # issues with zero project attachments — catches the class of issue
+          # opened on a repo but never added to a board (e.g. slipped through
+          # for weeks unnoticed). Sorted oldest first.
+          UNBOARDED_OWNERS = [
+              ("user", "Godimas101"),
+              ("org",  "gitpush-mod"),
+              ("org",  "The-Canadian-Space"),
+          ]
+
+          def fetch_unboarded_issues(owner_type, owner):
+              root = "organization" if owner_type == "org" else "user"
+              found = []
+              cursor = None
+              while True:
+                  after = f', after: "{cursor}"' if cursor else ""
+                  q = (
+                      '{ ' + root + '(login: "' + owner + '") { '
+                      f'repositories(first: 100{after}, isArchived: false, isFork: false) {{ '
+                      'pageInfo { hasNextPage endCursor } '
+                      'nodes { name isPrivate '
+                      'issues(first: 100, states: OPEN) { nodes { '
+                      'number title url createdAt updatedAt '
+                      'projectItems(first: 5) { totalCount } '
+                      '} } '
+                      '} } } }'
+                  )
+                  d = gql(q)
+                  if not d or "data" not in d or not d["data"]:
+                      break
+                  node = d["data"].get(root) or {}
+                  repos = node.get("repositories") or {}
+                  for repo in repos.get("nodes", []) or []:
+                      repo_name = repo.get("name")
+                      for iss in (repo.get("issues") or {}).get("nodes", []) or []:
+                          proj_count = ((iss.get("projectItems") or {}).get("totalCount")) or 0
+                          if proj_count == 0:
+                              found.append((owner, repo_name, iss))
+                  page_info = repos.get("pageInfo") or {}
+                  if not page_info.get("hasNextPage"):
+                      break
+                  cursor = page_info.get("endCursor")
+              return found
+
+          unboarded = []
+          for owner_type, owner in UNBOARDED_OWNERS:
+              batch = fetch_unboarded_issues(owner_type, owner)
+              print(f"  unboarded scan {owner}: {len(batch)} issue(s)")
+              unboarded.extend(batch)
+
+          # Sort by createdAt ascending (oldest first — most likely to be forgotten)
+          def _iss_created(entry):
+              iso = entry[2].get("createdAt") or ""
+              try:
+                  return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+              except ValueError:
+                  return now
+          unboarded.sort(key=_iss_created)
+
           # Sort: in-progress + done_recent by updated desc, in_qa by oldest first
           in_progress.sort(key=lambda e: e[4], reverse=True)
           done_recent.sort(key=lambda e: e[4], reverse=True)
@@ -200,6 +259,26 @@ jobs:
               lines.append("## 🚧 In Progress — quiet")
               lines.append("")
               lines.append("Nothing actively being worked on across any board.")
+              lines.append("")
+
+          # UNBOARDED_V1: issues opened on repos that never got added to a board
+          if unboarded:
+              lines.append(f"## 🚨 Un-boarded issues — {len(unboarded)} open issue(s) not on any project board")
+              lines.append("")
+              lines.append("Repo-level issues that slipped through the board-tracking net. Add each to a project board so they show up in future digest sections.")
+              lines.append("")
+              lines.append("| Repo | Issue | Opened | Age |")
+              lines.append("|---|---|---|---|")
+              for owner_login, repo_name, iss in unboarded:
+                  created = _iss_created((owner_login, repo_name, iss))
+                  age_days = (now - created).days
+                  age_str = "today" if age_days == 0 else f"{age_days}d"
+                  title_raw = iss.get("title") or "(no title)"
+                  short = title_raw if len(title_raw) <= 80 else title_raw[:77] + "..."
+                  iss_url = iss.get("url") or f"https://github.com/{owner_login}/{repo_name}/issues"
+                  repo_url = f"https://github.com/{owner_login}/{repo_name}/issues"
+                  created_short = (iss.get("createdAt") or "")[:10]
+                  lines.append(f"| [{owner_login}/{repo_name}]({repo_url}) | [#{iss.get('number','?')} — {short}]({iss_url}) | {created_short} | {age_str} |")
               lines.append("")
 
           if done_recent:
