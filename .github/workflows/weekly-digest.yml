@@ -169,6 +169,14 @@ jobs:
           ]
 
           def fetch_unboarded_issues(owner_type, owner):
+              # UNBOARDED_OWNER_AFFILIATION_V1 (2026-07-27): the default
+              # `user(login).repositories(...)` returns repos with
+              # ownerAffiliations=[OWNER, COLLABORATOR, ORGANIZATION_MEMBER]
+              # when the query runs authenticated as that user — so org repos
+              # bleed into the Godimas101 pass AND get scanned again under
+              # their own org pass, producing duplicate issue rows in the
+              # digest (each once per owner label). Restrict to [OWNER] so
+              # every repo is scanned exactly once by its true owner.
               root = "organization" if owner_type == "org" else "user"
               found = []
               cursor = None
@@ -176,7 +184,7 @@ jobs:
                   after = f', after: "{cursor}"' if cursor else ""
                   q = (
                       '{ ' + root + '(login: "' + owner + '") { '
-                      f'repositories(first: 100{after}, isArchived: false, isFork: false) {{ '
+                      f'repositories(first: 100{after}, isArchived: false, isFork: false, ownerAffiliations: [OWNER]) {{ '
                       'pageInfo { hasNextPage endCursor } '
                       'nodes { name isPrivate '
                       'issues(first: 100, states: OPEN) { nodes { '
@@ -203,10 +211,19 @@ jobs:
               return found
 
           unboarded = []
+          seen_urls = set()  # belt-and-suspenders dedup by issue URL
           for owner_type, owner in UNBOARDED_OWNERS:
               batch = fetch_unboarded_issues(owner_type, owner)
-              print(f"  unboarded scan {owner}: {len(batch)} issue(s)")
-              unboarded.extend(batch)
+              added = 0
+              for entry in batch:
+                  url = (entry[2].get("url") or "").strip()
+                  if url and url in seen_urls:
+                      continue
+                  if url:
+                      seen_urls.add(url)
+                  unboarded.append(entry)
+                  added += 1
+              print(f"  unboarded scan {owner}: {added} new issue(s) ({len(batch)} raw)")
 
           # Sort by createdAt ascending (oldest first — most likely to be forgotten)
           def _iss_created(entry):
