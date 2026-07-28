@@ -98,19 +98,90 @@ jobs:
               urls = set()
               for m in URL_RE.finditer(text):
                   url = m.group(0)
-                  # Strip trailing punctuation that URL_RE overmatches
-                  url = url.rstrip(".,;:!?")
+                  # LINKCHECK_HYGIENE_V1: strip trailing markdown/punctuation that URL_RE
+                  # overmatches — backticks from inline-code spans, closing parens/brackets/braces
+                  # from wrapped links, quotes, etc.
+                  url = url.rstrip(".,;:!?`)>]}\"'")
                   # Skip common placeholders / shields.io / raw githubusercontent (shields = always up)
                   if any(x in url for x in ("shields.io", "capsule-render.vercel.app")):
                       continue
                   # Skip loopback / example
                   if url.startswith("http://localhost") or "example.com" in url:
                       continue
+                  # Skip URLs that contain unfilled template placeholders like {id} or <token>
+                  rest = url.split("://", 1)[1] if "://" in url else url
+                  if "{" in rest or "<" in rest:
+                      continue
+                  # Skip bare protocol strings (`https://` with nothing after) or URLs
+                  # without any dot — e.g. `http://image-prep:3001` internal hostnames
+                  # that only resolve inside a docker network. Require at least one dot
+                  # in the host part to count as public and worth testing.
+                  host_part = rest.split("/", 1)[0]
+                  if "." not in host_part:
+                      continue
                   urls.add(url)
               return sorted(urls)
 
+          def test_github_url(url):
+              """LINKCHECK_GH_AUTH_V1 — auth'd check for github.com URLs so private
+              repos and private user/org project boards don't false-404 to anonymous
+              urllib. Returns HTTP-ish status, or None to defer to urllib caller.
+              """
+              import urllib.parse
+              try:
+                  p = urllib.parse.urlparse(url)
+              except Exception:
+                  return None
+              if p.netloc != "github.com":
+                  return None
+              parts = [x for x in p.path.split("/") if x]
+              if not parts:
+                  return None
+              # Board URLs: /users/X/projects/N or /orgs/X/projects/N
+              if len(parts) >= 4 and parts[0] in ("users", "orgs") and parts[2] == "projects":
+                  owner_type = "user" if parts[0] == "users" else "organization"
+                  owner = parts[1]
+                  try:
+                      num = int(parts[3].split("?")[0])
+                  except ValueError:
+                      return None
+                  q = '{ ' + owner_type + '(login: "' + owner + '") { projectV2(number: ' + str(num) + ') { id } } }'
+                  r = subprocess.run(
+                      ["gh", "api", "graphql", "-f", f"query={q}"],
+                      capture_output=True, text=True, encoding="utf-8", env=gh_env(),
+                  )
+                  if r.returncode != 0:
+                      return 500
+                  try:
+                      parsed = json.loads(r.stdout)
+                  except Exception:
+                      return 500
+                  if "errors" in parsed:
+                      return 404
+                  proj = ((parsed.get("data") or {}).get(owner_type) or {}).get("projectV2")
+                  return 200 if proj else 404
+              # Repo URLs: /owner/repo[/anything]. Skip reserved top-level GH paths.
+              reserved = {"orgs", "users", "settings", "notifications", "issues",
+                          "search", "topics", "trending", "marketplace", "sponsors",
+                          "explore", "collections", "features", "pricing", "codespaces"}
+              if len(parts) >= 2 and parts[0] not in reserved:
+                  owner = parts[0]
+                  repo = parts[1].split("?")[0].split("#")[0]
+                  r = subprocess.run(
+                      ["gh", "api", f"repos/{owner}/{repo}"],
+                      capture_output=True, text=True, encoding="utf-8", env=gh_env(),
+                      stderr=subprocess.DEVNULL,
+                  )
+                  # If repo exists we treat the URL as reachable — subpath 404s (tree/blob/
+                  # sub-issue) are rare in AGENTS.md and not worth an extra API round-trip.
+                  return 200 if r.returncode == 0 else 404
+              return None
+
           def test_url(url):
               """Return (url, status) — status is int HTTP code, 0 for timeout, -1 for other error."""
+              gh_status = test_github_url(url)
+              if gh_status is not None:
+                  return (url, gh_status)
               req = urllib.request.Request(url, method="HEAD", headers={
                   "User-Agent": "godimas101-linkcheck/1.0",
               })

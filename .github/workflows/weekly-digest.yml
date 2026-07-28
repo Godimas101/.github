@@ -129,6 +129,7 @@ jobs:
           in_progress = []  # (board_label, board_url, item_title, item_url, updatedAt)
           in_qa = []
           done_recent = []
+          backlog = []  # BACKLOG_IN_UNBOARDED_V1 — items on any board with Status="Backlog"
 
           for owner_type, owner, num, label in BOARDS:
               title, url, items = fetch_items(owner_type, owner, num)
@@ -152,6 +153,8 @@ jobs:
                       in_progress.append(entry)
                   elif status == "In QA":
                       in_qa.append(entry)
+                  elif status == "Backlog":
+                      backlog.append(entry)
                   elif status == "Done" and updated >= window_start:
                       done_recent.append(entry)
 
@@ -213,6 +216,8 @@ jobs:
               except ValueError:
                   return now
           unboarded.sort(key=_iss_created)
+          # Backlog: oldest updatedAt first (index 4 in the tuple — same shape as in_qa)
+          backlog.sort(key=lambda e: e[4])
 
           # Sort: in-progress + done_recent by updated desc, in_qa by oldest first
           in_progress.sort(key=lambda e: e[4], reverse=True)
@@ -266,14 +271,25 @@ jobs:
               lines.append("Nothing actively being worked on across any board.")
               lines.append("")
 
-          # UNBOARDED_V1: issues opened on repos that never got added to a board
-          if unboarded:
-              lines.append(f"## 🚨 Un-boarded issues — {len(unboarded)} open issue(s) not on any project board")
+          # BACKLOG + UNBOARDED — items not being actively worked on:
+          #   - board items with Status="Backlog" (parked but visible on a board)
+          #   - open repo issues with zero project attachments (never boarded)
+          # Merged here so Chris sees everything that isn't In Progress / In QA
+          # in one place, and can either action it or accept it as parked.
+          if backlog or unboarded:
+              total = len(backlog) + len(unboarded)
+              lines.append(f"## 🚨 Backlog + un-boarded — {total} item(s) not being actively worked on")
               lines.append("")
-              lines.append("Repo-level issues that slipped through the board-tracking net. Add each to a project board so they show up in future digest sections.")
+              lines.append("Board items sitting in Backlog, plus repo-level issues that were never added to a board. Triage each: either move it forward, or accept it as parked.")
               lines.append("")
-              lines.append("| Repo | Issue | Opened | Age |")
-              lines.append("|---|---|---|---|")
+              lines.append("| Source | Item | Age |")
+              lines.append("|---|---|---|")
+              # Backlog first (oldest updatedAt), then un-boarded (oldest createdAt)
+              for label, board_url, item_title, item_url, updated in backlog:
+                  age_days = (now - updated).days
+                  age_str = "today" if age_days == 0 else f"{age_days}d"
+                  short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_str} |")
               for owner_login, repo_name, iss in unboarded:
                   created = _iss_created((owner_login, repo_name, iss))
                   age_days = (now - created).days
@@ -282,8 +298,7 @@ jobs:
                   short = title_raw if len(title_raw) <= 80 else title_raw[:77] + "..."
                   iss_url = iss.get("url") or f"https://github.com/{owner_login}/{repo_name}/issues"
                   repo_url = f"https://github.com/{owner_login}/{repo_name}/issues"
-                  created_short = (iss.get("createdAt") or "")[:10]
-                  lines.append(f"| [{owner_login}/{repo_name}]({repo_url}) | [#{iss.get('number','?')} — {short}]({iss_url}) | {created_short} | {age_str} |")
+                  lines.append(f"| [{owner_login}/{repo_name} (un-boarded)]({repo_url}) | [#{iss.get('number','?')} — {short}]({iss_url}) | {age_str} |")
               lines.append("")
 
           if done_recent:
