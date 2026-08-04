@@ -6,9 +6,9 @@ name: Weekly status digest
 # into ONE issue on Godimas101/personal-projects. That issue gets:
 #   - Label: `weekly-digest`
 #   - Auto-added to Personal Projects board (Godimas101/projects/2)
-#   - Board Status: `In QA` (needs Chris's eyes each week)
+#   - Board Status: `Todo` (fresh, no triage yet — signals "look at me, nothing done")
 # Previous week's digest is auto-closed AND its board Status flipped to `Done`
-# so the current snapshot is always the one open In QA item labelled
+# so the current snapshot is always the one open Todo item labelled
 # `weekly-digest` on Personal Projects.
 #
 # Requires PERSONAL_PROJECT_TOKEN (classic PAT with `project` + `repo` scopes)
@@ -332,18 +332,22 @@ jobs:
 
           lines.append("---")
           lines.append("")
-          lines.append(f"Boards queried: {len(BOARDS)}. Runs weekly on Mondays 06:00 UTC via [`weekly-digest.yml`](https://github.com/Godimas101/.github/blob/main/.github/workflows/weekly-digest.yml). Filed on [Godimas101/personal-projects](https://github.com/Godimas101/personal-projects/issues?q=is%3Aissue+label%3Aweekly-digest) with label `weekly-digest`, auto-added to [Personal Projects board](https://github.com/users/Godimas101/projects/2) with Status `In QA`. Previous week's digest is auto-closed + flipped to Status `Done`. Manual re-run: **Actions → Weekly status digest → Run workflow**.")
+          lines.append(f"Boards queried: {len(BOARDS)}. Runs weekly on Mondays 06:00 UTC via [`weekly-digest.yml`](https://github.com/Godimas101/.github/blob/main/.github/workflows/weekly-digest.yml). Filed on [Godimas101/personal-projects](https://github.com/Godimas101/personal-projects/issues?q=is%3Aissue+label%3Aweekly-digest) with label `weekly-digest`, auto-added to [Personal Projects board](https://github.com/users/Godimas101/projects/2) with Status `Todo`. Previous week's digest is auto-closed + flipped to Status `Done`. Manual re-run: **Actions → Weekly status digest → Run workflow**.")
 
           body = "\n".join(lines)
           title = f"Weekly status digest — {today.isoformat()}"
 
           # BOARD_LANDING_V1 (2026-07-25): file on personal-projects repo, surface
-          # on Personal Projects board with Status=In QA (needs Chris's eyes each
-          # week). Close-and-flip-to-Done for the previous week's digest.
+          # on Personal Projects board with Status=Todo (fresh, no triage yet).
+          # BOARD_LANDING_TODO_V2 (2026-08-04): switched from In QA to Todo — In QA
+          # was misleading (implied "someone did work, needs review"), and Chris
+          # kept moving digests to Done thinking they'd already been actioned.
+          # Todo reads as "look at me, nothing done".
+          # Close-and-flip-to-Done for the previous week's digest.
           PP_REPO             = "Godimas101/personal-projects"
           PP_PROJECT_ID       = "PVT_kwHODcjVPc4BdUpf"
           PP_STATUS_FIELD_ID  = "PVTSSF_lAHODcjVPc4BdUpfzhX2_7c"
-          PP_STATUS_IN_QA     = "7380ca8e"
+          PP_STATUS_TODO      = "6fada3d6"
           PP_STATUS_DONE      = "6078018e"
           DIGEST_LABEL        = "weekly-digest"
 
@@ -430,7 +434,7 @@ jobs:
                   text=True, encoding="utf-8",
               ).strip()
               print(f"  filed: {issue_url}")
-              # Fetch node ID → add to Personal Projects board → set Status=In QA
+              # Fetch node ID → add to Personal Projects board → set Status=Todo
               new_num = issue_url.rstrip("/").split("/")[-1]
               nd = gql(
                   '{ repository(owner: "Godimas101", name: "personal-projects") { '
@@ -447,8 +451,8 @@ jobs:
                   new_item = ((add_result or {}).get("data", {}) or {}).get("addProjectV2ItemById", {}) or {}
                   new_item_id = (new_item.get("item") or {}).get("id")
                   if new_item_id:
-                      set_board_status(new_item_id, PP_STATUS_IN_QA)
-                      print(f"  added to Personal Projects board (item {new_item_id}), Status=In QA")
+                      set_board_status(new_item_id, PP_STATUS_TODO)
+                      print(f"  added to Personal Projects board (item {new_item_id}), Status=Todo")
                   else:
                       print("::warning::Could not add new issue to Personal Projects board")
               else:
