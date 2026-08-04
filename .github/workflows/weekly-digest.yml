@@ -148,7 +148,12 @@ jobs:
                   except ValueError:
                       updated = now
 
-                  entry = (label, url, item_title, item_url, updated)
+                  # STATUS_COLUMN_V1 (2026-08-04): include the item's Status
+                  # in the tuple so tables can render a Status column. For sections
+                  # that filter by status the value is redundant, but useful when
+                  # the digest is shared out of context (Slack, notes, etc.), and
+                  # meaningful in the mixed Backlog + un-boarded section.
+                  entry = (label, url, item_title, item_url, updated, status)
                   if status == "In Progress":
                       in_progress.append(entry)
                   elif status == "In QA":
@@ -237,6 +242,8 @@ jobs:
           backlog.sort(key=lambda e: e[4])
 
           # Sort: in-progress + done_recent by updated desc, in_qa by oldest first
+          # Note tuple index 4 is still updated after the STATUS_COLUMN_V1 tuple extension
+          # (status was appended at index 5, updated stays at index 4).
           in_progress.sort(key=lambda e: e[4], reverse=True)
           done_recent.sort(key=lambda e: e[4], reverse=True)
           in_qa.sort(key=lambda e: e[4])
@@ -256,14 +263,14 @@ jobs:
                   header += f" ⚠️ **{stale_count} sitting for > {WARN_STALE} days**"
               lines.append(header)
               lines.append("")
-              lines.append("| Board | Item | Age | ⚠ |")
-              lines.append("|---|---|---|---|")
-              for label, board_url, item_title, item_url, updated in in_qa:
+              lines.append("| Board | Item | Status | Age | ⚠ |")
+              lines.append("|---|---|---|---|---|")
+              for label, board_url, item_title, item_url, updated, status in in_qa:
                   age_days = (now - updated).days
                   stale_mark = "⚠️" if updated < stale_cutoff else ""
                   # Truncate long titles
                   short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
-                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_days}d | {stale_mark} |")
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {status or '—'} | {age_days}d | {stale_mark} |")
               lines.append("")
           else:
               lines.append("## 🔍 In QA — clear ✅")
@@ -274,13 +281,13 @@ jobs:
           if in_progress:
               lines.append(f"## 🚧 In Progress — {len(in_progress)} item(s)")
               lines.append("")
-              lines.append("| Board | Item | Last touched |")
-              lines.append("|---|---|---|")
-              for label, board_url, item_title, item_url, updated in in_progress:
+              lines.append("| Board | Item | Status | Last touched |")
+              lines.append("|---|---|---|---|")
+              for label, board_url, item_title, item_url, updated, status in in_progress:
                   age_days = (now - updated).days
                   age_str = "today" if age_days == 0 else f"{age_days}d ago"
                   short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
-                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_str} |")
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {status or '—'} | {age_str} |")
               lines.append("")
           else:
               lines.append("## 🚧 In Progress — quiet")
@@ -299,14 +306,14 @@ jobs:
               lines.append("")
               lines.append("Board items sitting in Backlog, plus repo-level issues that were never added to a board. Triage each: either move it forward, or accept it as parked.")
               lines.append("")
-              lines.append("| Source | Item | Age |")
-              lines.append("|---|---|---|")
+              lines.append("| Source | Item | Status | Age |")
+              lines.append("|---|---|---|---|")
               # Backlog first (oldest updatedAt), then un-boarded (oldest createdAt)
-              for label, board_url, item_title, item_url, updated in backlog:
+              for label, board_url, item_title, item_url, updated, status in backlog:
                   age_days = (now - updated).days
                   age_str = "today" if age_days == 0 else f"{age_days}d"
                   short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
-                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_str} |")
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {status or '—'} | {age_str} |")
               for owner_login, repo_name, iss in unboarded:
                   created = _iss_created((owner_login, repo_name, iss))
                   age_days = (now - created).days
@@ -315,19 +322,20 @@ jobs:
                   short = title_raw if len(title_raw) <= 80 else title_raw[:77] + "..."
                   iss_url = iss.get("url") or f"https://github.com/{owner_login}/{repo_name}/issues"
                   repo_url = f"https://github.com/{owner_login}/{repo_name}/issues"
-                  lines.append(f"| [{owner_login}/{repo_name} (un-boarded)]({repo_url}) | [#{iss.get('number','?')} — {short}]({iss_url}) | {age_str} |")
+                  # Un-boarded issues have no project Status — em-dash makes the mixed section legible.
+                  lines.append(f"| [{owner_login}/{repo_name} (un-boarded)]({repo_url}) | [#{iss.get('number','?')} — {short}]({iss_url}) | — | {age_str} |")
               lines.append("")
 
           if done_recent:
               lines.append(f"## ✅ Recently Done — {len(done_recent)} item(s) closed in the last {WINDOW_DAYS} days")
               lines.append("")
-              lines.append("| Board | Item | Closed |")
-              lines.append("|---|---|---|")
-              for label, board_url, item_title, item_url, updated in done_recent:
+              lines.append("| Board | Item | Status | Closed |")
+              lines.append("|---|---|---|---|")
+              for label, board_url, item_title, item_url, updated, status in done_recent:
                   age_days = (now - updated).days
                   age_str = "today" if age_days == 0 else f"{age_days}d ago"
                   short = item_title if len(item_title) <= 80 else item_title[:77] + "..."
-                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {age_str} |")
+                  lines.append(f"| [{label}]({board_url}) | [{short}]({item_url}) | {status or '—'} | {age_str} |")
               lines.append("")
 
           lines.append("---")
