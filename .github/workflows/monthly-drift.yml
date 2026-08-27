@@ -540,13 +540,30 @@ jobs:
                   tmp.write(body)
                   tmp_path = tmp.name
           
-              subprocess.check_call(
+              # Capture the URL of the new issue so we can add it to Project 2.
+              result = subprocess.check_output(
                   ["gh", "issue", "create", "-R", "Godimas101/.github",
                    "--title", title, "--body-file", tmp_path,
                    "--label", "monthly-drift"],
-                  env=default_env,
+                  env=default_env, text=True,
               )
-              print(f"  filed: {title}")
+              # gh issue create prints the URL as the last line of stdout.
+              issue_url = result.strip().split("\n")[-1].strip()
+              print(f"  filed: {title}  ({issue_url})")
+
+              # Auto-add to Godimas101 Project 2 ("Personal Projects").
+              # Uses PERSONAL_PROJECT_TOKEN which must include Project (R+W) scope.
+              # Failure here is non-fatal — the issue already exists; log + continue.
+              try:
+                  subprocess.check_call(
+                      ["gh", "project", "item-add", "2",
+                       "--owner", "Godimas101",
+                       "--url", issue_url],
+                      env=default_env,
+                  )
+                  print(f"  added to Godimas101 Project 2 (Personal Projects)")
+              except subprocess.CalledProcessError as e:
+                  print(f"::warning::project add failed (issue still filed): {e}")
               return 0
           
           if __name__ == "__main__":
