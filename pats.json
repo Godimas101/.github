@@ -1,14 +1,70 @@
 {
-  "$schema": "PAT tracking manifest for automated expiration reminders. See .github/workflows/check-pat-expiration.yml.",
+  "$schema": "PAT tracking manifest for automated expiration reminders. See .github/workflows/check-pat-expiration.yml. Names follow the PAT_<scope>_<purpose> convention (scope in {godimas, tcs, mod}, purpose in {push, read, project, deploy, sync}) — established 2026-09-02 during tcs-docs#58 audit. Use expires: \"never\" for intentionally never-expiring PATs; the workflow skips those.",
   "checked_by_workflow": ".github/workflows/check-pat-expiration.yml",
   "warn_days_ahead": 60,
   "pats": [
     {
-      "name": "MOD_PROJECT_TOKEN",
+      "name": "PAT_godimas_project",
+      "previous_name": "PERSONAL_PROJECT_TOKEN",
+      "type": "classic",
+      "owner": "Godimas101 (user)",
+      "installed_at": [
+        "Godimas101/.github repo secret PERSONAL_PROJECT_TOKEN (secret name unchanged; only PAT label renamed)"
+      ],
+      "created": "2026-07-15",
+      "expires": "never",
+      "scope": "project + repo (classic PAT scopes)",
+      "used_by": [
+        "Godimas101/.github/.github/workflows/auto-archive-personal-projects.yml"
+      ],
+      "renew_url": "https://github.com/settings/tokens",
+      "renew_steps": "Classic PAT — regenerate with same scopes (project + repo). Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set PERSONAL_PROJECT_TOKEN -R Godimas101/.github"
+    },
+    {
+      "name": "PAT_godimas_sync_n8n",
+      "previous_name": "Used by ovh n8n",
+      "type": "classic",
+      "owner": "Godimas101 (user)",
+      "installed_at": [
+        "n8n credential 'GitHub account' (githubApi, id QhZR5QjgFaW12Qz9)"
+      ],
+      "created": "2026-04-14 (n8n credential creation date; underlying PAT may be older)",
+      "expires": "never",
+      "scope": "repo (classic PAT)",
+      "used_by": [
+        "n8n workflow: Git Workflow Backup (Update file, Upload file, Get file)",
+        "n8n workflow: Google Health Sync (Edit File)",
+        "n8n workflow: Patreon Sync (Update Supporters List)",
+        "n8n workflow: Wyze Data Sync (Edit a file)"
+      ],
+      "renew_url": "https://github.com/settings/tokens",
+      "renew_steps": "Classic PAT — regenerate with same scope (repo). n8n UI: Credentials > GitHub account > paste new value > save. Test with a low-impact workflow (Git Workflow Backup manual run)."
+    },
+    {
+      "name": "PAT_godimas_sync_n8n_http",
+      "previous_name": "ovh-n8n-header-auth",
+      "type": "classic",
+      "owner": "Godimas101 (user)",
+      "installed_at": [
+        "n8n credential 'GitHub API' (httpHeaderAuth, id wWaoayzhvB5RMLJm)"
+      ],
+      "created": "2026-04-16 (n8n credential creation date; underlying PAT may be older)",
+      "expires": "never",
+      "scope": "repo (classic PAT)",
+      "used_by": [
+        "n8n workflow: Social Posts (Upload Image -> Godimas101/tcs-images)",
+        "n8n workflow: Rocket Lab Roundup V3 (Upload RL Image)"
+      ],
+      "renew_url": "https://github.com/settings/tokens",
+      "renew_steps": "Classic PAT — regenerate with same scope (repo). n8n UI: Credentials > GitHub API > set Header Value to 'token <NEW_PAT>' (verify current prefix) > save. Test with a Social Posts dry-run."
+    },
+    {
+      "name": "PAT_mod_project",
+      "previous_name": "MOD_PROJECT_TOKEN",
       "type": "fine-grained",
       "owner": "gitpush-mod (org)",
       "installed_at": [
-        "gitpush-mod org secret (visibility=all)"
+        "gitpush-mod org secret MOD_PROJECT_TOKEN (visibility=all)"
       ],
       "created": "2026-07-15",
       "expires": "2027-07-15",
@@ -22,36 +78,162 @@
       "renew_steps": "Regenerate on the fine-grained PATs page. Keep same permissions. Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set MOD_PROJECT_TOKEN --org gitpush-mod --visibility all"
     },
     {
-      "name": "PERSONAL_PROJECT_TOKEN",
-      "type": "classic",
-      "owner": "Godimas101 (user)",
-      "installed_at": [
-        "Godimas101/.github repo secret"
-      ],
-      "created": "2026-07-15",
-      "expires": "2027-07-14",
-      "scope": "project + repo (classic PAT scopes)",
-      "used_by": [
-        "Godimas101/.github/.github/workflows/auto-archive-personal-projects.yml"
-      ],
-      "renew_url": "https://github.com/settings/tokens",
-      "renew_steps": "Classic PAT — regenerate with same scopes (project + repo). Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set PERSONAL_PROJECT_TOKEN -R Godimas101/.github"
-    },
-    {
-      "name": "TCS_PROJECT_TOKEN",
-      "type": "fine-grained (assumed)",
+      "name": "PAT_tcs_project",
+      "previous_name": "TCS_PROJECT_TOKEN",
+      "type": "fine-grained",
       "owner": "The-Canadian-Space (org)",
       "installed_at": [
-        "The-Canadian-Space org secret (or repo-level — verify)"
+        "The-Canadian-Space org secret TCS_PROJECT_TOKEN",
+        "tcs-docs repo secret TCS_PROJECT_TOKEN (may be redundant if org inheritance is enabled — verify)"
       ],
-      "created": "2026-07-15",
-      "expires": "2027-07-14",
-      "scope": "Organization Projects: Read + Write on The-Canadian-Space (assumed)",
+      "created": "2026-08-18 (regenerated)",
+      "expires": "never",
+      "scope": "Organization Projects: Read + Write on The-Canadian-Space",
       "used_by": [
-        "TCS ticket-first automation (verify actual workflow files)"
+        "tcs-docs/.github/workflows/ticket-to-blog.yml",
+        "tcs-docs/.github/workflows/draft-to-issue.yml",
+        "tcs-docs/.github/workflows/archive-old-done.yml"
       ],
       "renew_url": "https://github.com/settings/tokens?type=beta",
-      "renew_steps": "Verify expiration date and update this entry. If unknown, next login: run `gh api user | jq` on that PAT to see if it still auths."
+      "renew_steps": "Regenerate on the fine-grained PATs page. Keep same permissions. Rotate secret value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set TCS_PROJECT_TOKEN --org The-Canadian-Space --visibility all"
+    },
+    {
+      "name": "PAT_tcs_project_workflows",
+      "previous_name": "TCS Board Workflows",
+      "type": "fine-grained",
+      "owner": "The-Canadian-Space (org)",
+      "installed_at": [
+        "The-Canadian-Space org secret TCS_WORKFLOW_TOKEN",
+        "tcs-docs, tcs-workflows, tcs-archive, tcs-webpage, tcs-discord repo secrets TCS_WORKFLOW_TOKEN (bulk-provisioned)"
+      ],
+      "created": "2026-08-11 (from Actions Secret created_at)",
+      "expires": "never",
+      "scope": "Organization Projects: Read + Write on The-Canadian-Space (plus workflow scopes for reusable workflow auth — verify)",
+      "used_by": [
+        "Reusable workflow auth (e.g. add-to-project.yml) invoked from TCS repo workflows"
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Regenerate on the fine-grained PATs page. Rotate value across the org secret + 5 repo secrets: gh secret set TCS_WORKFLOW_TOKEN --org The-Canadian-Space --visibility all"
+    },
+    {
+      "name": "PAT_tcs_sync_blog",
+      "previous_name": "TCS Board to blog token",
+      "type": "fine-grained",
+      "owner": "The-Canadian-Space (org)",
+      "installed_at": [
+        "UNVERIFIED — surface when this token next fires. Not found in obvious locations: tcs-docs workflow files use TCS_PROJECT_TOKEN (which maps to PAT_tcs_project), not this. Likely candidates to check next: (a) tcs-docs repo secret with a name matching this purpose, (b) a distinct n8n credential, (c) an env var in a blog-related automation."
+      ],
+      "created": "UNVERIFIED (last used within last 4 weeks per GitHub UI 2026-09-02)",
+      "expires": "never",
+      "scope": "UNVERIFIED — name implies TCS project board -> blog automation (Contents R/W on tcs-docs + Issues R/W to close tickets after blog publish is a plausible shape)",
+      "used_by": [
+        "UNVERIFIED — name implies board-to-blog automation. Actual consumer will surface next time this token is used (GitHub UI shows last-used dates); at that point update this entry."
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Verify install location + consumers before rotating. Update this entry once the consumer surfaces."
+    },
+    {
+      "name": "PAT_tcs_sync_bot",
+      "previous_name": "gh-pat-tcs-org",
+      "type": "fine-grained",
+      "owner": "The-Canadian-Space (org)",
+      "installed_at": [
+        "n8n credential 'gh-pat-tcs-org' (githubApi, id B08ZW2ZKAm2v3CkP) — currently 0 references in n8n workflows (orphan; may be pruneable)",
+        "tcs-forum-watcher bot env var GH_PAT_TCS_ORG (VPS: /opt/tcs/discord-forum-watcher/.env)"
+      ],
+      "created": "2026-08-16",
+      "expires": "never",
+      "scope": "Issues R+W on The-Canadian-Space org repos; Contents R+W on The-Canadian-Space/tcs-forum-watcher-attachments (for attachment persistence)",
+      "used_by": [
+        "tcs-forum-watcher Discord bot — TCS-repo half (Discord forum <-> GitHub issue sync)"
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Regenerate. Update env var GH_PAT_TCS_ORG in /opt/tcs/discord-forum-watcher/.env on VPS, restart the bot container (docker compose restart tcs-forum-watcher). If n8n credential is still around, update it too or delete it (orphan)."
+    },
+    {
+      "name": "PAT_godimas_sync_forum",
+      "previous_name": "tcs-forum-watcher — Godimas101",
+      "type": "fine-grained",
+      "owner": "Godimas101 (user)",
+      "installed_at": [
+        "n8n credential 'gh-pat-godimas101' (githubApi, id vVqUCelaqLkf3WTQ) — currently 0 references in n8n workflows (orphan; may be pruneable)",
+        "tcs-forum-watcher bot env var GH_PAT_GODIMAS101 (VPS: /opt/tcs/discord-forum-watcher/.env)"
+      ],
+      "created": "2026-08-16",
+      "expires": "never",
+      "scope": "Issues R+W on Godimas101 personal repos",
+      "used_by": [
+        "tcs-forum-watcher Discord bot — Godimas101 personal-repo half"
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Regenerate. Update env var GH_PAT_GODIMAS101 in /opt/tcs/discord-forum-watcher/.env, restart bot container."
+    },
+    {
+      "name": "PAT_mod_sync_forum",
+      "previous_name": "tcs-forum-watcher — gitpush-mod",
+      "type": "fine-grained",
+      "owner": "gitpush-mod (org)",
+      "installed_at": [
+        "n8n credential 'gh-pat-gitpush-mod' (githubApi, id SqZtzAXVAwnfpiJj)",
+        "tcs-forum-watcher bot env var GH_PAT_GITPUSH_MOD (VPS: /opt/tcs/discord-forum-watcher/.env)"
+      ],
+      "created": "2026-08-16",
+      "expires": "never",
+      "scope": "Issues R+W on gitpush-mod org repos",
+      "used_by": [
+        "tcs-forum-watcher Discord bot — gitpush-mod repo half"
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Regenerate. Update env var GH_PAT_GITPUSH_MOD in /opt/tcs/discord-forum-watcher/.env, restart bot container."
+    },
+    {
+      "name": "PAT_godimas_sync_weight",
+      "previous_name": "n8n weight tracker",
+      "type": "fine-grained",
+      "owner": "Godimas101 (user)",
+      "installed_at": [
+        "n8n credential (dedicated, distinct from GITHUB_API/GITHUB_ACCOUNT) — probable but exact credential name not yet enumerated. Likely wired to the weight-tracking side of the Wyze workflow. Verify next time credentials are enumerated."
+      ],
+      "created": "UNVERIFIED (last used within last 3 weeks per GitHub UI 2026-09-02)",
+      "expires": "never",
+      "scope": "Fine-grained on Godimas101 — likely Contents R/W on personal-projects (for weight-chart write) or a specific weight-data repo. Verify.",
+      "used_by": [
+        "n8n Wyze Data Sync workflow (weight-tracking side) — PROBABLE per Chris 2026-09-02.",
+        "Possibly also the upcoming Google Health Sync workflow (still being built out)."
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Verify n8n credential name first. Then regenerate on the fine-grained PATs page + paste into the identified n8n credential.",
+      "notes": "Likely successor to CHART_PAT (personal-projects Actions secret, revoked 2026-09-02) — that Actions-based workflow was abandoned in favour of an n8n-based sync. Distinct from PAT_godimas_sync_n8n which is Chris's classic-PAT-general-purpose n8n creds (GITHUB_ACCOUNT / GITHUB_API); this fine-grained PAT is scoped narrowly for the weight domain."
+    }
+  ],
+  "revoked_pats": [
+    {
+      "previous_name": "Claude code PAT",
+      "type": "classic",
+      "revoked_on": "2026-09-02",
+      "reason": "Never used since creation; had admin:org + admin:org_hook + admin:repo_hook + audit_log + workflow + write:packages + more scopes (owns-the-org token). Security posture cleanup.",
+      "audit_ref": "tcs-docs#58"
+    },
+    {
+      "previous_name": "n8n-backup",
+      "type": "classic",
+      "revoked_on": "2026-09-02",
+      "reason": "5+ months idle. No active n8n workflow references. Superseded by 'Used by ovh n8n' (now PAT_godimas_sync_n8n) and 'ovh-n8n-header-auth' (now PAT_godimas_sync_n8n_http).",
+      "audit_ref": "tcs-docs#58"
+    },
+    {
+      "previous_name": "Token used by n8n",
+      "type": "classic",
+      "revoked_on": "2026-09-02",
+      "reason": "5+ months idle. No active n8n workflow references. Same story as n8n-backup.",
+      "audit_ref": "tcs-docs#58"
+    },
+    {
+      "previous_name": "CHART_PAT",
+      "type": "actions-secret (Godimas101/personal-projects repo secret; not a personal PAT on tokens page)",
+      "revoked_on": "2026-09-02",
+      "reason": "17+ months idle. Only referenced by generate-weight-chart.yml which was abandoned. Weight-chart replacement path is PAT_godimas_sync_weight (see pats entry).",
+      "audit_ref": "tcs-docs#58"
     }
   ]
 }
