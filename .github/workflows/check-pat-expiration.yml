@@ -66,6 +66,14 @@ jobs:
                   unknowns.append(pat)
                   continue
 
+              # NEVER_EXPIRES_V1 (tcs-docs#58): Chris's policy is that most
+              # personal-account PATs are intentionally never-expiring.
+              # Manifest signals this with expires: "never" so the reminder
+              # cron skips them silently (no weekly noise) while still
+              # documenting them for audit purposes.
+              if exp == "never":
+                  continue
+
               try:
                   exp_date = datetime.strptime(exp, "%Y-%m-%d").date()
               except ValueError:
