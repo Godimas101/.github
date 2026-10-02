@@ -203,7 +203,25 @@
       ],
       "renew_url": "https://github.com/settings/tokens?type=beta",
       "renew_steps": "Verify n8n credential name first. Then regenerate on the fine-grained PATs page + paste into the identified n8n credential.",
-      "notes": "Likely successor to CHART_PAT (personal-projects Actions secret, revoked 2026-09-02) — that Actions-based workflow was abandoned in favour of an n8n-based sync. Distinct from PAT_godimas_sync_n8n which is Chris's classic-PAT-general-purpose n8n creds (GITHUB_ACCOUNT / GITHUB_API); this fine-grained PAT is scoped narrowly for the weight domain."
+      "notes": "Distinct from PAT_godimas_chart — despite tcs-docs#58 audit-time speculation, this n8n cred is for the weight-tracking data-sync pipeline (Wyze/Google Health -> repo). The generate-weight-chart.yml GHA path is separate and now uses PAT_godimas_chart (restored 2026-09-04). Distinct from PAT_godimas_sync_n8n which is Chris's classic-PAT-general-purpose n8n creds (GITHUB_ACCOUNT / GITHUB_API); this fine-grained PAT is scoped narrowly for the weight domain."
+    },
+    {
+      "name": "PAT_godimas_chart",
+      "previous_name": "CHART_PAT (Actions secret; no personal PAT label existed pre-audit)",
+      "type": "fine-grained",
+      "owner": "Godimas101 (user)",
+      "installed_at": [
+        "Godimas101/personal-projects repo secret CHART_PAT (secret name unchanged; only PAT label added under the new convention)"
+      ],
+      "created": "2026-09-04",
+      "expires": "never",
+      "scope": "Contents R/W on Godimas101/personal-projects only",
+      "used_by": [
+        "Godimas101/personal-projects/.github/workflows/generate-weight-chart.yml (Checkout step + commit-back for weight-chart.svg + metrics-chart.svg)"
+      ],
+      "renew_url": "https://github.com/settings/tokens?type=beta",
+      "renew_steps": "Regenerate on the fine-grained PATs page with the same scope (Contents R/W on Godimas101/personal-projects). Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set CHART_PAT -R Godimas101/personal-projects",
+      "notes": "Restored 2026-09-04 after the tcs-docs#58 audit revocation. The audit assumed the GHA workflow had been abandoned in favour of an n8n-based sync; that assumption was wrong. The replacement is a fine-grained PAT scoped to Contents R/W on Godimas101/personal-projects only (previous CHART_PAT was a classic PAT with broader scope). Secret name stays CHART_PAT so the workflow file doesn't need editing."
     }
   ],
   "revoked_pats": [
@@ -232,7 +250,9 @@
       "previous_name": "CHART_PAT",
       "type": "actions-secret (Godimas101/personal-projects repo secret; not a personal PAT on tokens page)",
       "revoked_on": "2026-09-02",
-      "reason": "17+ months idle. Only referenced by generate-weight-chart.yml which was abandoned. Weight-chart replacement path is PAT_godimas_sync_weight (see pats entry).",
+      "restored_on": "2026-09-04",
+      "restored_as": "PAT_godimas_chart",
+      "reason": "Revoked on the (incorrect) assumption that the generate-weight-chart.yml workflow had been abandoned in favour of an n8n-based sync. The GHA workflow is still the active path for chart generation. Kept in this archive to record the audit trail; the live entry is PAT_godimas_chart above.",
       "audit_ref": "tcs-docs#58"
     }
   ]
