@@ -106,7 +106,7 @@ jobs:
                   if any(x in url for x in ("shields.io", "capsule-render.vercel.app")):
                       continue
                   # Skip loopback / example
-                  if url.startswith("http://localhost") or "example.com" in url:
+                  if url.split("://", 1)[-1].startswith(("localhost", "127.", "[::1]")) or "example.com" in url:
                       continue
                   # Skip URLs that contain unfilled template placeholders like {id} or <token>
                   rest = url.split("://", 1)[1] if "://" in url else url
@@ -170,7 +170,6 @@ jobs:
                   r = subprocess.run(
                       ["gh", "api", f"repos/{owner}/{repo}"],
                       capture_output=True, text=True, encoding="utf-8", env=gh_env(),
-                      stderr=subprocess.DEVNULL,
                   )
                   # If repo exists we treat the URL as reachable — subpath 404s (tree/blob/
                   # sub-issue) are rare in AGENTS.md and not worth an extra API round-trip.
