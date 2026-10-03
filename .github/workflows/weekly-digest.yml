@@ -11,7 +11,7 @@ name: Weekly status digest
 # so the current snapshot is always the one open Todo item labelled
 # `weekly-digest` on Personal Projects.
 #
-# Requires PERSONAL_PROJECT_TOKEN (classic PAT with `project` + `repo` scopes)
+# Requires PAT_GODIMAS_PROJECT (classic PAT with `project` + `repo` scopes)
 # — classic PAT respects Chris's user permissions across gitpush-mod and
 # The-Canadian-Space orgs, so ONE token is enough for all 14 boards AND
 # for cross-repo issue writes on personal-projects.
@@ -38,7 +38,7 @@ jobs:
   digest:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+      GH_TOKEN: ${{ secrets.PAT_GODIMAS_PROJECT }}
       WARN_STALE_DAYS: ${{ inputs.warn_stale_days || '3' }}
       WINDOW_DAYS: ${{ inputs.window_days || '7' }}
     steps:
@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
 
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set on Godimas101/.github."
+            echo "::error::PAT_GODIMAS_PROJECT secret is not set on Godimas101/.github."
             exit 1
           fi
 

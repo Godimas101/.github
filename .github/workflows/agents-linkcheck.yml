@@ -8,7 +8,7 @@ name: Quarterly AGENTS.md link check
 # memory file gets renamed, the AGENTS.md-embedded links go stale silently.
 # This catches that.
 #
-# Uses PERSONAL_PROJECT_TOKEN — needs `repo` scope for reading private
+# Uses PAT_GODIMAS_PROJECT — needs `repo` scope for reading private
 # repos' AGENTS.md files.
 
 on:
@@ -31,7 +31,7 @@ jobs:
   linkcheck:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+      GH_TOKEN: ${{ secrets.PAT_GODIMAS_PROJECT }}
       DEFAULT_TOKEN: ${{ github.token }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
     steps:
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
 
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set."
+            echo "::error::PAT_GODIMAS_PROJECT secret is not set."
             exit 1
           fi
 

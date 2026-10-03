@@ -27,17 +27,17 @@ jobs:
       BOARD_NUMBER: 2
       DAYS_OLD: ${{ inputs.days_old || '30' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
-      # PERSONAL_PROJECT_TOKEN must be a fine-grained PAT with:
+      # PAT_GODIMAS_PROJECT must be a fine-grained PAT with:
       #   - "Projects" (Read + Write) on Godimas101's user account
-      # Set at repo-level: gh secret set PERSONAL_PROJECT_TOKEN -R Godimas101/.github
-      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+      # Set at repo-level: gh secret set PAT_GODIMAS_PROJECT -R Godimas101/.github
+      GH_TOKEN: ${{ secrets.PAT_GODIMAS_PROJECT }}
     steps:
       - name: Archive Done items older than ${{ inputs.days_old || '30' }} days
         run: |
           set -euo pipefail
 
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set on Godimas101/.github."
+            echo "::error::PAT_GODIMAS_PROJECT secret is not set on Godimas101/.github."
             echo "::error::Create a fine-grained PAT with User → Projects (Read+Write) and add it as a repo secret."
             exit 1
           fi
