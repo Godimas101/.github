@@ -11,7 +11,7 @@
       "installed_at": [
         "Godimas101/.github repo secret PAT_GODIMAS_PROJECT"
       ],
-      "created": "2026-07-15",
+      "created": "2026-10-03 (regenerated, tcs-docs#153)",
       "expires": "never",
       "scope": "project + repo (classic PAT scopes)",
       "used_by": [
@@ -70,8 +70,8 @@
       "installed_at": [
         "gitpush-mod org secret PAT_MOD_PROJECT (visibility=all; every gitpush-mod repo is public)"
       ],
-      "created": "2026-07-15",
-      "expires": "2027-07-15",
+      "created": "2026-10-03 (regenerated, tcs-docs#153)",
+      "expires": "never",
       "scope": "Organization Projects: Read + Write on gitpush-mod",
       "used_by": [
         "gitpush-mod/.github/.github/workflows/auto-archive-mod-boards.yml",
@@ -90,7 +90,7 @@
       "installed_at": [
         "The-Canadian-Space/tcs-docs repo secret PAT_TCS_PROJECT (the only copy; there is no org secret, checked 2026-10-03)"
       ],
-      "created": "2026-08-18 (regenerated)",
+      "created": "2026-10-03 (regenerated, tcs-docs#153)",
       "expires": "never",
       "scope": "Organization Projects: Read + Write on The-Canadian-Space",
       "used_by": [
@@ -108,17 +108,16 @@
       "type": "fine-grained",
       "owner": "The-Canadian-Space (org)",
       "installed_at": [
-        "The-Canadian-Space org secret PAT_TCS_PROJECT_WORKFLOWS (visibility=all; reaches the public repos)",
-        "repo secrets PAT_TCS_PROJECT_WORKFLOWS on the 5 private repos: tcs-archive, tcs-discord, tcs-docs, tcs-webpage, tcs-workflows (on GitHub Free, org secrets don't reach private repos)"
+        "The-Canadian-Space org secret PAT_TCS_PROJECT_WORKFLOWS (visibility=all), the only copy: TCS is on GitHub Team since 2026-10-03 (tcs-docs#252), where org secrets reach the private repos too"
       ],
-      "created": "2026-08-11 (from Actions Secret created_at)",
+      "created": "2026-10-03 (regenerated, tcs-docs#153)",
       "expires": "never",
       "scope": "Organization Projects: Read + Write on The-Canadian-Space (plus workflow scopes for reusable workflow auth — verify)",
       "used_by": [
         "add-to-project.yml in 10 TCS repos: .github, tcs-archive, tcs-discord, tcs-docs, tcs-images, tcs-public-wiki, tcs-scripts, tcs-tools, tcs-webpage, tcs-workflows"
       ],
       "renew_url": "https://github.com/settings/tokens?type=beta",
-      "renew_steps": "Regenerate on the fine-grained PATs page. Copy the value, then set all 6 copies: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set PAT_TCS_PROJECT_WORKFLOWS --org The-Canadian-Space --visibility all ; for r in tcs-archive tcs-discord tcs-docs tcs-webpage tcs-workflows; do powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set PAT_TCS_PROJECT_WORKFLOWS -R \"The-Canadian-Space/$r\"; done"
+      "renew_steps": "Regenerate on the fine-grained PATs page. Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set PAT_TCS_PROJECT_WORKFLOWS --org The-Canadian-Space --visibility all"
     },
     {
       "name": "PAT_tcs_sync_bot",
@@ -179,7 +178,7 @@
       "installed_at": [
         "Godimas101/personal-projects repo secret PAT_GODIMAS_CHART"
       ],
-      "created": "2026-09-04",
+      "created": "2026-10-03 (regenerated, tcs-docs#153)",
       "expires": "never",
       "scope": "Contents R/W on Godimas101/personal-projects only",
       "used_by": [
