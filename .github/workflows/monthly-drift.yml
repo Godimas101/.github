@@ -19,7 +19,7 @@ name: Monthly source-of-truth drift check
 #   - AGENTS.md 12-month staleness
 #   - CLAUDE.md stub validation
 #
-# Uses PERSONAL_PROJECT_TOKEN — needs `repo` scope for reading private
+# Uses PAT_GODIMAS_PROJECT — needs `repo` scope for reading private
 # repos' READMEs, plus GraphQL access for project existence checks.
 
 on:
@@ -42,7 +42,7 @@ jobs:
   drift-check:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TOKEN }}
+      GH_TOKEN: ${{ secrets.PAT_GODIMAS_PROJECT }}
       DEFAULT_TOKEN: ${{ github.token }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
     steps:
@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
 
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::PERSONAL_PROJECT_TOKEN secret is not set."
+            echo "::error::PAT_GODIMAS_PROJECT secret is not set."
             exit 1
           fi
 
@@ -74,7 +74,7 @@ jobs:
               consistent across repos.
           
           Env vars:
-            GH_TOKEN         — PAT with `repo` scope (PERSONAL_PROJECT_TOKEN in Actions)
+            GH_TOKEN         — PAT with `repo` scope (PAT_GODIMAS_PROJECT in Actions)
             DEFAULT_TOKEN    — repo-scoped token for filing the issue (github.token in Actions)
             DRY_RUN          — 'true' skips issue filing, prints to stdout
           """
@@ -552,7 +552,7 @@ jobs:
               print(f"  filed: {title}  ({issue_url})")
 
               # Auto-add to Godimas101 Project 2 ("Personal Projects").
-              # Uses PERSONAL_PROJECT_TOKEN which must include Project (R+W) scope.
+              # Uses PAT_GODIMAS_PROJECT which must include Project (R+W) scope.
               # Failure here is non-fatal — the issue already exists; log + continue.
               try:
                   subprocess.check_call(

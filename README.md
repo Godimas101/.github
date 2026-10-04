@@ -15,10 +15,10 @@ Personal-account `.github` repo for [Godimas101](https://github.com/Godimas101).
 
 ## Secrets required
 
-- **`PERSONAL_PROJECT_TOKEN`** — fine-grained PAT with User → Projects (Read+Write) permission on `Godimas101`. Set at repo scope:
+- **`PAT_GODIMAS_PROJECT`** — classic PAT with the `project` and `repo` scopes (fine-grained PATs can't reach user-level projects). Set at repo scope:
 
 ```powershell
-gh secret set PERSONAL_PROJECT_TOKEN -R Godimas101/.github
+gh secret set PAT_GODIMAS_PROJECT -R Godimas101/.github
 ```
 
 ## Release + changelog automation (desktop-tool repos)
@@ -54,7 +54,7 @@ pushes it.
 - The caller **must** set `permissions: contents: write`. A called (reusable)
   workflow can't escalate above its caller, and repos default the token to
   read-only — so without this the call dies at **startup** (`startup_failure`).
-- `MOD_PROJECT_TOKEN` is a **gitpush-mod org** secret, so it's unavailable to
+- `PAT_MOD_PROJECT` is a **gitpush-mod org** secret, so it's unavailable to
   **Godimas101** personal repos; those fall back to `GITHUB_TOKEN` (hence the
   `contents: write` requirement above).
 - `GITHUB_TOKEN` can't push to a **protected** `main` (the bot isn't on the
