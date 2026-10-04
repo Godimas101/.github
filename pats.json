@@ -46,23 +46,6 @@
       "renew_steps": "Classic PAT — regenerate with same scope (repo). n8n UI: Credentials > PAT_godimas_sync_n8n > paste new value > save. Test with a low-impact workflow (Git Workflow Backup manual run)."
     },
     {
-      "name": "PAT_godimas_sync_n8n_http",
-      "previous_name": "ovh-n8n-header-auth",
-      "type": "classic",
-      "owner": "Godimas101 (user)",
-      "installed_at": [
-        "n8n credential 'PAT_godimas_sync_n8n_http' (httpHeaderAuth, id wWaoayzhvB5RMLJm; named 'GitHub API' until tcs-docs#153)"
-      ],
-      "created": "2026-04-16 (n8n credential creation date; underlying PAT may be older)",
-      "expires": "never",
-      "scope": "repo (classic PAT)",
-      "used_by": [
-        "n8n workflow: Social Posts (Upload Image -> Godimas101/tcs-images), disabled since tcs-workflows#130 moved Instagram images to the asset server. Nothing else uses it: Rocket Lab Roundup V3 stopped. Revoke it once #130 is confirmed."
-      ],
-      "renew_url": "https://github.com/settings/tokens",
-      "renew_steps": "Classic PAT — regenerate with same scope (repo). n8n UI: Credentials > PAT_godimas_sync_n8n_http > set Header Value to 'token <NEW_PAT>' (verify current prefix) > save. Test with a Social Posts dry-run."
-    },
-    {
       "name": "PAT_mod_project",
       "previous_name": "MOD_PROJECT_TOKEN",
       "type": "fine-grained",
@@ -120,21 +103,21 @@
       "renew_steps": "Regenerate on the fine-grained PATs page. Rotate value via: powershell.exe -NoProfile -Command 'Get-Clipboard' | tr -d '\\r\\n' | gh secret set PAT_TCS_PROJECT_WORKFLOWS --org The-Canadian-Space --visibility all"
     },
     {
-      "name": "PAT_tcs_sync_bot",
-      "previous_name": "gh-pat-tcs-org",
+      "name": "PAT_tcs_sync_forum",
+      "previous_name": "tcs-forum-watcher — The-Canadian-Space",
       "type": "fine-grained",
       "owner": "The-Canadian-Space (org)",
       "installed_at": [
-        "tcs-forum-watcher bot env var PAT_TCS_SYNC_BOT (VPS: /opt/tcs/discord-forum-watcher/.env). No n8n copy any more."
+        "tcs-forum-watcher bot env var PAT_TCS_SYNC_FORUM (VPS: /opt/tcs/discord-forum-watcher/.env). No n8n copy any more."
       ],
-      "created": "2026-08-16",
+      "created": "unknown",
       "expires": "never",
       "scope": "Issues R+W on The-Canadian-Space org repos; Contents R+W on The-Canadian-Space/tcs-forum-watcher-attachments (for attachment persistence)",
       "used_by": [
         "tcs-forum-watcher Discord bot — TCS-repo half (Discord forum <-> GitHub issue sync)"
       ],
       "renew_url": "https://github.com/settings/tokens?type=beta",
-      "renew_steps": "Regenerate. Update env var PAT_TCS_SYNC_BOT in /opt/tcs/discord-forum-watcher/.env on the VPS, then restart the bot container."
+      "renew_steps": "Regenerate. Update env var PAT_TCS_SYNC_FORUM in /opt/tcs/discord-forum-watcher/.env on the VPS, then restart the bot container."
     },
     {
       "name": "PAT_godimas_sync_forum",
@@ -223,15 +206,29 @@
     {
       "previous_name": "PAT_tcs_sync_blog (was 'TCS Board to blog token')",
       "type": "fine-grained",
-      "revoked_on": "PENDING (set when Chris revokes it, tcs-docs#153 step 8)",
+      "revoked_on": "2026-10-03",
       "reason": "No consumer found when every Actions secret, workflow file, n8n credential and the forum-watcher bot were enumerated on 2026-10-03; revoked instead of renamed.",
       "audit_ref": "tcs-docs#153"
     },
     {
       "previous_name": "PAT_godimas_sync_weight (was 'n8n weight tracker')",
       "type": "fine-grained",
-      "revoked_on": "PENDING (set when Chris revokes it, tcs-docs#153 step 8)",
+      "revoked_on": "2026-10-03",
       "reason": "No consumer found when every Actions secret, workflow file, n8n credential and the forum-watcher bot were enumerated on 2026-10-03; revoked instead of renamed.",
+      "audit_ref": "tcs-docs#153"
+    },
+    {
+      "previous_name": "PAT_tcs_sync_bot (was 'gh-pat-tcs-org')",
+      "type": "fine-grained",
+      "revoked_on": "2026-10-03",
+      "reason": "The token behind the orphan n8n credential gh-pat-tcs-org (deleted 2026-09-02). Never used by the tcs-forum-watcher bot, whose TCS token is PAT_tcs_sync_forum; this registry had the two swapped until tcs-docs#153.",
+      "audit_ref": "tcs-docs#153"
+    },
+    {
+      "previous_name": "PAT_godimas_sync_n8n_http (was 'ovh-n8n-header-auth'; n8n credential 'GitHub API')",
+      "type": "classic",
+      "revoked_on": "2026-10-04",
+      "reason": "No consumer after tcs-workflows#130. Proved to be the token in the n8n credential 'GitHub API' by regenerating it and testing both GitHub credentials (GitHub API 401, PAT_godimas_sync_n8n 200); the token and the credential were deleted the same day.",
       "audit_ref": "tcs-docs#153"
     }
   ]
