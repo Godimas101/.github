@@ -39,8 +39,8 @@
         "n8n workflow: Cost Sentinel (Get Existing Post, Update Existing Cost Sentinel Post, Upload New Cost Sentinel Post)",
         "n8n workflow: Healthcheck V2 (Get Existing Post, Update Existing Healthcheck Post, Upload New Healthcheck Post)",
         "n8n workflow: Patreon Sync (Update Supporters List)",
-        "n8n workflow: Wyze Data Sync (Edit a file)",
-        "n8n workflow: Google Health Sync (Edit File) — workflow inactive"
+        "n8n workflow: Wyze Data Sync (Get File, Edit a file)",
+        "n8n workflow: Google Health Sync (Get File, Edit File) — workflow inactive"
       ],
       "renew_url": "https://github.com/settings/tokens",
       "renew_steps": "Classic PAT — regenerate with same scope (repo). n8n UI: Credentials > PAT_godimas_sync_n8n > paste new value > save. Test with a low-impact workflow (Git Workflow Backup manual run)."
@@ -214,7 +214,7 @@
       "previous_name": "PAT_godimas_sync_weight (was 'n8n weight tracker')",
       "type": "fine-grained",
       "revoked_on": "2026-10-03",
-      "reason": "No consumer found when every Actions secret, workflow file, n8n credential and the forum-watcher bot were enumerated on 2026-10-03; revoked instead of renamed.",
+      "reason": "No consumer found when every Actions secret, workflow file, n8n credential and the forum-watcher bot were enumerated on 2026-10-03; revoked instead of renamed. Found later (automatic-weight-recording#8): it was GITHUB_PAT in the n8n .env, which the Get File step of Wyze Data Sync and Google Health Sync read via $env.GITHUB_PAT. The audit did not scan workflow parameters for $env names, so Wyze failed on every new weigh-in from 2026-10-04. Since 2026-10-14 both steps use PAT_godimas_sync_n8n.",
       "audit_ref": "tcs-docs#153"
     },
     {
