@@ -227,8 +227,8 @@ jobs:
                       continue
                   if url.startswith("http://localhost") or "example.com" in url:
                       continue
-                  # Skip obvious documentation placeholders
-                  if "/path/to/" in url or "your-token-here" in url:
+                  # Skip obvious documentation placeholders (YOUR_USER/YOUR_REPO: #48)
+                  if "/path/to/" in url or "your-token-here" in url or "YOUR_" in url:
                       continue
                   urls.add(url)
               return sorted(urls)
