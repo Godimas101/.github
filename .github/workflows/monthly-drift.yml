@@ -24,7 +24,12 @@ name: Monthly source-of-truth drift check
 
 on:
   schedule:
-    - cron: '0 5 1-7 * 1'  # 1st Monday of month, 05:00 UTC
+    # Every Monday 05:00 UTC; the job exits unless it's the FIRST Monday of the
+    # month. Cron can't express "first Monday": when both day-of-month and
+    # day-of-week are set it matches EITHER, so the old '0 5 1-7 * 1' ran on
+    # days 1-7 AND every Monday, ~10 issues a month (#46; the same bug as
+    # The-Canadian-Space/tcs-docs#217).
+    - cron: '0 5 * * 1'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -49,6 +54,12 @@ jobs:
       - name: Scan + report
         run: |
           set -euo pipefail
+
+          # First Monday of the month only (#46). Manual runs are never skipped.
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$(date -u +%-d)" -gt 7 ]]; then
+            echo "Not the first Monday of the month; nothing to do."
+            exit 0
+          fi
 
           if [[ -z "${GH_TOKEN:-}" ]]; then
             echo "::error::PAT_GODIMAS_PROJECT secret is not set."
