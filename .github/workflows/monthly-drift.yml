@@ -168,6 +168,8 @@ jobs:
           # - shields.io, capsule-render: always up, no signal from checking
           # - patreon, linkedin, discord.com/users, steamcommunity, nexusmods: aggressive bot-blocking.
           #   These return 403/405/407 to HEAD/GET from urllib even when the URL is valid in a browser.
+          # - api.anthropic.com/api/oauth/usage: the API Claude Usage Monitor's README names. It needs a login,
+          #   so it always answers 401: a monthly false positive (#50).
           URL_SKIP_PATTERNS = (
               "shields.io",
               "capsule-render.vercel.app",
@@ -177,6 +179,7 @@ jobs:
               "steamcommunity.com",
               "nexusmods.com",
               "claude.ai",
+              "api.anthropic.com/api/oauth/usage",
           )
           
           # ---------------- HELPERS ----------------
